@@ -1,0 +1,25 @@
+{
+  "timestamp": "2026-09-27T21:04:46.791Z",
+  "metrics": {
+    "modeA": {
+      "avg_latency_ms": 15.435860999999997,
+      "p99_latency_ms": 16.57090000000005,
+      "success_rate": 100
+    },
+    "modeB": {
+      "avg_latency_ms": 15.532942000000014,
+      "p99_latency_ms": 16.465199999999868,
+      "success_rate": 100
+    },
+    "circuit_breaker": {
+      "totalInjectedErrors": 50,
+      "recoveredCount": 50,
+      "breakerTrips": 3
+    },
+    "role_guard": {
+      "totalDispatches": 300,
+      "duplicateAttemptsBlocked": 100,
+      "pure3RolesConfirmed": 100
+    }
+  }
+}

@@ -1,0 +1,407 @@
+"""
+生成 30 个包含隐藏缺陷与精度陷阱的高危量化计算测试矩阵用例。
+分类:
+1. tick_quantize: Tick大小截断与浮点精度 (CASE-01 ~ CASE-06)
+2. tiered_liquidation: 阶梯保证金与强平穿仓 (CASE-07 ~ CASE-12)
+3. slippage_penetration: 双边滑点与非线性冲击穿透预算 (CASE-13 ~ CASE-18)
+4. tz_dst_misalignment: 时区跨国对齐与夏令时跳跃 (CASE-19 ~ CASE-24)
+5. adjustment_factor: 复权因子除零与精度坍塌 (CASE-25 ~ CASE-30)
+"""
+import json
+from decimal import Decimal, ROUND_FLOOR, ROUND_CEILING, ROUND_HALF_UP
+
+cases = []
+
+# --- 1. Tick Quantization (CASE-01 ~ CASE-06) ---
+cases.append({
+    "id": "CASE-01",
+    "category": "tick_quantize",
+    "name": "USDT本位合约微小Tick向下截断与浮点表示丢失",
+    "description": "BTC合约当前价 67432.178，交易所规定最小 price_tick=0.01，买单必须严格向下截断到 tick 步长，禁止四舍五入。计算可委托买价及价位偏差。",
+    "input_params": {"raw_price": 67432.178, "tick_size": 0.01, "direction": "BUY"},
+    "hidden_pitfalls": "float(67432.178) 在标准 IEEE 754 中为 67432.177999999997... 若使用直接乘除或 int()，可能发生 67432.16 的多重截断错误；四舍五入会导致挂单价格超过用户期望上限被交易所拒单。",
+    "ground_truth_formula": "Decimal(raw_price).quantize(Decimal(str(tick_size)), rounding=ROUND_FLOOR)",
+    "expected_output": {"valid_price": "67432.17", "tick_diff": "0.008"},
+    "red_team_attack_vector": "传入 0.00000001 tick 或以 float 传入导致精度折损，买单高于原价穿透风控。",
+})
+
+cases.append({
+    "id": "CASE-02",
+    "category": "tick_quantize",
+    "name": "期权极低标价向上截断防零报价漏洞",
+    "description": "深度虚值期权估值 0.000034，卖单最小可报价 tick=0.0001。卖单必须向上对齐到最小可用档位以满足覆盖成本与最小步长规则。",
+    "input_params": {"raw_price": 0.000034, "tick_size": 0.0001, "direction": "SELL"},
+    "hidden_pitfalls": "若直接向下截断将得到 0.0000，触发交易所「无效委托价(Price must be > 0)」异常中断。",
+    "ground_truth_formula": "Decimal(raw_price).quantize(Decimal(str(tick_size)), rounding=ROUND_CEILING)",
+    "expected_output": {"valid_price": "0.0001", "is_zero_prevented": True},
+    "red_team_attack_vector": "传入 0 价格、负价格或无限接近零导致报价为 0 形成无偿赠送套利。",
+})
+
+cases.append({
+    "id": "CASE-03",
+    "category": "tick_quantize",
+    "name": "非十进制倒数步长(1/8 或 1/64)农产品/国债期货转换",
+    "description": "CBOT 玉米/美国国债期货使用分数报价 (如 1/8 = 0.125 或 1/32)。价格 104.381 必须对齐到最近的 0.125 步长。",
+    "input_params": {"raw_price": 104.381, "fraction_tick": 0.125, "rounding_rule": "NEAREST_HALF_UP"},
+    "hidden_pitfalls": "浮点除法 104.381 / 0.125 = 835.048，四舍五入为 835，835 * 0.125 = 104.375。如果使用标准小数位数截断无法处理 0.125 的 3 位小数与非 0.01 关系。",
+    "ground_truth_formula": "round(Decimal('104.381') / Decimal('0.125')) * Decimal('0.125')",
+    "expected_output": {"valid_price": "104.375", "ticks_count": 835},
+    "red_team_attack_vector": "中点值 104.4375 处舍入边界测试，金融标准要求 HALF_EVEN 还是 HALF_UP。",
+})
+
+cases.append({
+    "id": "CASE-04",
+    "category": "tick_quantize",
+    "name": "高频订单簿成交量 Lot Size 步长与最小名义价值截断",
+    "description": "资金预算 1500 USDT，市价 19.83 USDT，最小 lot_step=1.0，最小名义价值(minNotional)=50.0 USDT。计算最大可开仓手数及实际消耗金额。",
+    "input_params": {"budget": 1500.0, "price": 19.83, "lot_step": 1.0, "min_notional": 50.0},
+    "hidden_pitfalls": "未考虑最小名义价值边界，或直接 1500/19.83 得到 75.64 股若向上取整 76 股则 76*19.83=1507.08 穿透预算；向下取整 75 股则 75*19.83=1487.25 ≤ 1500 且 1487.25 > 50。",
+    "ground_truth_formula": "qty = floor(budget / price / lot_step) * lot_step; notional = qty * price",
+    "expected_output": {"valid_qty": 75, "actual_notional": "1487.25", "budget_surplus": "12.75"},
+    "red_team_attack_vector": "预算恰好为 49.99 USDT，买得起 2 股(39.66)但无法满足 minNotional 50.0 导致直接拒单报错。",
+})
+
+cases.append({
+    "id": "CASE-05",
+    "category": "tick_quantize",
+    "name": "日元/韩元零小数货币对汇率网格对齐与尾差累积",
+    "description": "USD/JPY 报价 151.847，JPY 最小计价单位为 0.001(部分经纪商)或 0.01(标准)。在 0.01 网格下批量下单 10 笔各增加 0.006，验证每一笔累加后的离散量化。",
+    "input_params": {"base_price": 151.847, "step": 0.006, "count": 5, "tick_size": 0.01},
+    "hidden_pitfalls": "累加浮点数误差。第 1 笔 151.847->151.85，第 2 笔 151.853->151.85，第 3 笔 151.859->151.86。若用浮点数连续 += step 会发生漂移。",
+    "ground_truth_formula": "[(Decimal('151.847') + Decimal('0.006') * i).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) for i in range(5)]",
+    "expected_output": {"ladder": ["151.85", "151.85", "151.86", "151.87", "151.87"]},
+    "red_team_attack_vector": "大量连续单步导致累积舍入误差偏离真值 > 1 tick。",
+})
+
+cases.append({
+    "id": "CASE-06",
+    "category": "tick_quantize",
+    "name": "反向合约(币本位)合同乘数与张数整数化转换",
+    "description": "ETH/USD 币本位反向永续合约，每张价值 10 USD，开仓预算 2.5 ETH，当前价格 3420.50 USD/ETH。计算可开合约张数（必须为正整数）。",
+    "input_params": {"budget_eth": 2.5, "price_usd": 3420.50, "contract_val_usd": 10.0},
+    "hidden_pitfalls": "反向合约每张合约的 ETH 价值是 contract_val_usd / price_usd = 10 / 3420.50 ≈ 0.00292355 ETH。张数 = 2.5 / (10 / 3420.50) = 2.5 * 3420.50 / 10 = 855.125 张。向下取整为 855 张。新手常错误按正向乘法导致张数错误几百倍。",
+    "ground_truth_formula": "floor(budget_eth * price_usd / contract_val_usd)",
+    "expected_output": {"contracts": 855, "actual_margin_eth": "2.49963456", "dust_eth": "0.00036544"},
+    "red_team_attack_vector": "极高标价或暴跌时，1 张合约价值超过总预算，返回 contracts=0 时的处理。",
+})
+
+# --- 2. Tiered Margin & Liquidation (CASE-07 ~ CASE-12) ---
+cases.append({
+    "id": "CASE-07",
+    "category": "tiered_liquidation",
+    "name": "多档阶梯维持保证金率(MMR)分段速算扣除数推导",
+    "description": "OKX/Binance 模式：档位 1 (0~50,000 USDT): MMR=0.5%, 扣除数 0；档位 2 (50,000~250,000 USDT): MMR=1.0%；档位 3 (250,000~1,000,000 USDT): MMR=2.0%。持仓名义价值 400,000 USDT，计算全仓所需维持保证金(MM)。",
+    "input_params": {
+        "position_notional": 400000.0,
+        "tiers": [
+            {"tier": 1, "max_notional": 50000.0, "mmr": 0.005},
+            {"tier": 2, "max_notional": 250000.0, "mmr": 0.01},
+            {"tier": 3, "max_notional": 1000000.0, "mmr": 0.02},
+        ]
+    },
+    "hidden_pitfalls": "若直接用最高档 MMR 2.0% 乘 400,000 得到 8,000 (超额计算)，忽略了速算扣除数。真实 MM = 50,000*0.005 + (250,000-50,000)*0.01 + (400,000-250,000)*0.02 = 250 + 2000 + 3000 = 5250 USDT。速算扣除数 Ded_3 = 400,000*0.02 - 5250 = 2750 USDT。",
+    "ground_truth_formula": "MM = sum(tier_notional * mmr) = 5250.0; Ded_3 = 2750.0",
+    "expected_output": {"maintenance_margin": 5250.0, "quick_deduction": 2750.0, "effective_mmr": "0.013125"},
+    "red_team_attack_vector": "正好落在档位分界点 250,000.00 时的边界开闭区间处理。",
+})
+
+cases.append({
+    "id": "CASE-08",
+    "category": "tiered_liquidation",
+    "name": "正向合约全仓多头强平价格精准计算与手续费垫资",
+    "description": "用户本金 10,000 USDT，开多 5 BTC，开仓均价 50,000 USDT。当前档位维持保证金率 MMR=1%，平仓清算费率 Taker_fee=0.05%。计算未发生追加保证金时的强平价格(Liq Price)。",
+    "input_params": {"balance": 10000.0, "position_size": 5.0, "entry_price": 50000.0, "mmr": 0.01, "taker_fee": 0.0005},
+    "hidden_pitfalls": "强平触发条件：净值 Equity = Balance + (P_liq - P_entry) * Size ≤ Maintenance Margin + Fee。即 10000 + 5*(P_liq - 50000) = 5 * P_liq * (0.01 + 0.0005)。整理得 P_liq * 5 * (1 - 0.0105) = 5 * 50000 - 10000 = 240000 -> P_liq = 240000 / (5 * 0.9895) = 48000 / 0.9895 = 48509.348... 很多人忘记将清算费计入维持保证金需求，导致低估强平价早被爆仓。",
+    "ground_truth_formula": "P_liq = (entry_price * size - balance) / (size * (1 - mmr - taker_fee))",
+    "expected_output": {"liq_price": "48509.35", "loss_at_liq": "7453.25"},
+    "red_team_attack_vector": "极端高杠杆(如 100x)使 balance 极小甚至为负时的除零与负强平价异常。",
+})
+
+cases.append({
+    "id": "CASE-09",
+    "category": "tiered_liquidation",
+    "name": "反向币本位合约空头强平价的非线性双曲线解",
+    "description": "ETH 币本位反向合约，账户权益 10 ETH，开空 10,000 张(每张面值 10 USD)，开仓价 3000 USD/ETH，MMR=2%。求空头强平价格。",
+    "input_params": {"balance_eth": 10.0, "contracts": 10000, "face_val": 10.0, "entry_price": 3000.0, "mmr": 0.02},
+    "hidden_pitfalls": "反向合约空头未实现盈亏(ETH) = contracts * face_val * (1/entry_price - 1/P_liq)。维持保证金 = (contracts * face_val / P_liq) * MMR。强平条件: 10 + 100000*(1/3000 - 1/P_liq) = 100000*0.02 / P_liq。解得 10 + 33.333333 - 100000/P_liq = 2000/P_liq -> 43.333333 = 102000 / P_liq -> P_liq = 102000 / 43.333333 = 2353.846 USD/ETH。注意：空头强平价格在开仓价上方还是下方？因为是币本位，币价上涨抵押品升值，但空头亏损剧烈！很多模型将反向空头强平价误用正向公式直接算出错误数值。",
+    "ground_truth_formula": "P_liq = (contracts * face_val * (1 + mmr)) / (balance_eth + (contracts * face_val / entry_price))",
+    "expected_output": {"liq_price": "2353.85"},
+    "red_team_attack_vector": "权益余额充足时 1/P_liq ≤ 0 意味着永远不会爆仓，公式输出负数或无穷大。",
+})
+
+cases.append({
+    "id": "CASE-10",
+    "category": "tiered_liquidation",
+    "name": "多资产跨币种保证金折算率(Haircut)下穿仓防御",
+    "description": "抵押品资产组合：10,000 USDT (折算率 1.0) + 2 ETH (现价 3500 USDT, 折算率 0.90) + 500 SOL (现价 150 USDT, 折算率 0.80)。计算用于保证金的折算有效美金权益 (Adjusted Equity)。",
+    "input_params": {
+        "assets": [
+            {"coin": "USDT", "amount": 10000.0, "price": 1.0, "haircut": 1.0},
+            {"coin": "ETH", "amount": 2.0, "price": 3500.0, "haircut": 0.90},
+            {"coin": "SOL", "amount": 500.0, "price": 150.0, "haircut": 0.80},
+        ]
+    },
+    "hidden_pitfalls": "若 SOL 发生未实现负债或空头，负债必须按 1.0 或惩罚倍数 1.05 计入负债，而正资产才打折。此例为纯正资产：10000*1.0 + 7000*0.9 + 75000*0.8 = 10000 + 6300 + 60000 = 76300 USDT (名义市值为 92000 USDT)。",
+    "ground_truth_formula": "sum(amount * price * haircut)",
+    "expected_output": {"nominal_value": 92000.0, "adjusted_equity": 76300.0, "total_discount": 15700.0},
+    "red_team_attack_vector": "传入负资产，若程序依然乘 0.8 则低估了负债风险，产生致命风控漏洞。",
+})
+
+cases.append({
+    "id": "CASE-11",
+    "category": "tiered_liquidation",
+    "name": "部分减仓(Auto-Deleveraging/Partial Liquidation)步长与阶梯回退",
+    "description": "用户持有名义价值 600,000 USDT 仓位处于 Tier 3 (MMR=2.5%)，由于价格变动触发强平。交易所协议要求部分强平降档至 Tier 2 (上限 250,000 USDT, MMR=1.5%)。计算必须被强平撮合的最小名义数量及平仓罚金(清算罚款 1.5%)。",
+    "input_params": {"current_notional": 600000.0, "target_tier_max": 250000.0, "penalty_rate": 0.015},
+    "hidden_pitfalls": "需减仓规模不是简单减到 250,000，必须考虑减仓后的安全缓冲(通常要求降至目标档位的 90% 即 225,000，或恰好按边界截断)。若按严格阶梯边界：最小减仓量 = 600000 - 250000 = 350000 USDT。罚金 = 350000 * 0.015 = 5250 USDT。",
+    "ground_truth_formula": "reduction = current_notional - target_tier_max; penalty = reduction * penalty_rate",
+    "expected_output": {"min_reduction_notional": 350000.0, "liquidation_penalty": 5250.0, "remaining_notional": 250000.0},
+    "red_team_attack_vector": "市价跌停无法撮合时的穿仓基金(Insurance Fund)穿透与负权益分摊。",
+})
+
+cases.append({
+    "id": "CASE-12",
+    "category": "tiered_liquidation",
+    "name": "资金费率每小时结算导致的动态保证金侵蚀倒计时",
+    "description": "持有 100 BTC 多头永续，当前标记价 60,000 USDT，名义价值 6,000,000 USDT。预测下个整点资金费率极端飙升至 +0.375% (8小时等效年化超高)。账户当前自由可用保证金仅有 18,000 USDT。计算结算时将支付的资金费以及结算后账户是否立即爆仓。",
+    "input_params": {"position_notional": 6000000.0, "funding_rate": 0.00375, "free_margin": 18000.0},
+    "hidden_pitfalls": "资金费 = 6,000,000 * 0.00375 = 22,500 USDT。由于 22,500 > 18,000，结算后自由保证金变为 -4,500 USDT，将直接侵蚀维持保证金池并触发系统强平！",
+    "ground_truth_formula": "funding_fee = notional * rate; margin_deficit = funding_fee - free_margin",
+    "expected_output": {"funding_fee": 22500.0, "margin_deficit": 4500.0, "is_liquidated": True},
+    "red_team_attack_vector": "费率为负时多头获得资金费，公式符号若写反会把收入判定为爆仓。",
+})
+
+# --- 3. Slippage & Execution Budget Penetration (CASE-13 ~ CASE-18) ---
+cases.append({
+    "id": "CASE-13",
+    "category": "slippage_penetration",
+    "name": "深度订单簿非线性吃单滑点加权均价(VWAP)计算",
+    "description": "市价买入 12.5 BTC，卖方深度档位如下：\n- Ask 1: 60,000.0 (挂量 2.0 BTC)\n- Ask 2: 60,010.0 (挂量 3.5 BTC)\n- Ask 3: 60,030.0 (挂量 5.0 BTC)\n- Ask 4: 60,100.0 (挂量 10.0 BTC)\n计算实际成交均价(VWAP)、总花费 USDT 及相比 Best Ask 的滑点百分比。",
+    "input_params": {
+        "buy_size": 12.5,
+        "bids_asks": [
+            {"price": 60000.0, "size": 2.0},
+            {"price": 60010.0, "size": 3.5},
+            {"price": 60030.0, "size": 5.0},
+            {"price": 60100.0, "size": 10.0},
+        ]
+    },
+    "hidden_pitfalls": "Ask 1 吃满 2.0 @ 60000 = 120,000；Ask 2 吃满 3.5 @ 60010 = 210,035；Ask 3 吃满 5.0 @ 60030 = 300,150；剩余 12.5 - 10.5 = 2.0 在 Ask 4 吃 2.0 @ 60100 = 120,200。总花费 = 120000 + 210035 + 300150 + 120200 = 750,385 USDT。VWAP = 750,385 / 12.5 = 60,030.80 USDT。滑点 = (60030.80 - 60000) / 60000 = 0.051333% (5.13 bps)。如果直接按最高档 60100 算或平均价算全错。",
+    "ground_truth_formula": "total_cost = 2.0*60000 + 3.5*60010 + 5.0*60030 + 2.0*60100; vwap = total_cost / 12.5",
+    "expected_output": {"total_cost": 750385.0, "vwap": "60030.80", "slippage_bps": 5.13},
+    "red_team_attack_vector": "订单簿深度总量小于买单需求量(比如买 50 BTC)，导致死循环或未定义行为。",
+})
+
+cases.append({
+    "id": "CASE-14",
+    "category": "slippage_penetration",
+    "name": "Almgren-Chriss 平方根市场冲击模型预算穿透验证",
+    "description": "日均成交量(ADV)为 10,000,000 USD，波动率 σ=2.5%/日。策略计划在半小时内执行 500,000 USD 市价单。临时冲击公式 η = σ * sqrt(Volume / ADV) * 0.5。总滑点预算设为 15 bps (0.0015)。验证该单是否穿透滑点预算。",
+    "input_params": {"order_val": 500000.0, "adv": 10000000.0, "daily_vol": 0.025, "budget_bps": 15.0},
+    "hidden_pitfalls": "Volume / ADV = 500000 / 10000000 = 0.05。sqrt(0.05) ≈ 0.2236068。冲击 η = 0.025 * 0.2236068 * 0.5 = 0.002795 (27.95 bps)。预算仅为 15 bps，因此实际滑点 27.95 bps > 15 bps，穿透预算！",
+    "ground_truth_formula": "impact = daily_vol * sqrt(order_val / adv) * 0.5; penetrated = (impact * 10000 > budget_bps)",
+    "expected_output": {"impact_bps": 27.95, "budget_bps": 15.0, "is_penetrated": True, "overrun_bps": 12.95},
+    "red_team_attack_vector": "ADV 极端为 0 导致除零，或交易量为负。",
+})
+
+cases.append({
+    "id": "CASE-15",
+    "category": "slippage_penetration",
+    "name": "Uniswap V2 / Constant Product AMM 巨大滑点与夹子攻击空间",
+    "description": "流动性池 x=1,000,000 USDC, y=500 ETH (k = 500,000,000)。用户输入 50,000 USDC 买入 ETH，交易手续费 fee=0.3% (997/1000)。计算实际获得 ETH 数量、有效买价及价格影响(Price Impact)。",
+    "input_params": {"pool_x": 1000000.0, "pool_y": 500.0, "dx": 50000.0, "fee_rate": 0.003},
+    "hidden_pitfalls": "有效 dx_with_fee = 50000 * 0.997 = 49850。新 x' = 1000000 + 49850 = 1049850。新 y' = 500000000 / 1049850 ≈ 476.2585036。获得 dy = 500 - 476.2585036 = 23.7414964 ETH。实际单价 = 50000 / 23.7414964 ≈ 2105.975 USDC/ETH。而原池价为 2000.0 USDC/ETH。价格影响 = (2105.975 - 2000)/2000 = 5.29875%。",
+    "ground_truth_formula": "dy = (y * dx * 997) / (x * 1000 + dx * 997)",
+    "expected_output": {"received_eth": "23.741496", "effective_price": "2105.98", "price_impact_pct": "5.30"},
+    "red_team_attack_vector": "超大 dx (例如 10,000,000) 抽干池子流动性导致数值上溢或 dy 接近 y。",
+})
+
+cases.append({
+    "id": "CASE-16",
+    "category": "slippage_penetration",
+    "name": "双边不对称手续费计提扣除导致开仓保证金不足拒绝",
+    "description": "用户总资产 10,000 USDT，杠杆 10x，名义开仓目标 100,000 USDT。开仓 Taker 费率 0.06%，平仓预留 Taker 费率 0.06%。交易所要求开仓初始保证金 = 名义价值/杠杆 + 开仓费 + 平仓预留费。验证 100,000 USDT 委托是否被拒，并推导最大安全委托额。",
+    "input_params": {"balance": 10000.0, "leverage": 10.0, "taker_fee": 0.0006},
+    "hidden_pitfalls": "若直接开 100,000：名义保证金 = 10,000。开仓费 = 100,000 * 0.0006 = 60。平仓预留费 = 60。总需 100,000*(1/10 + 0.0012) = 10,120 USDT > 10,000！立刻被交易所报 INSUFFICIENT_MARGIN 拒单。最大可开名义 = 10000 / (0.1 + 0.0012) = 10000 / 0.1012 = 98,814.229 USDT。",
+    "ground_truth_formula": "max_notional = balance / (1/leverage + 2 * taker_fee)",
+    "expected_output": {"is_rejected_at_100k": True, "required_at_100k": 10120.0, "max_safe_notional": "98814.23"},
+    "red_team_attack_vector": "杠杆 100x 时，双边手续费 0.12% 占保证金比例高达 12%，忽略手续费导致下单 100% 失败。",
+})
+
+cases.append({
+    "id": "CASE-17",
+    "category": "slippage_penetration",
+    "name": "限价单 IOC (Immediate-or-Cancel) 深度滑点保护与部分成交残单",
+    "description": "用户发 100 ETH 的买入 IOC 单，限价 3502.00。订单簿卖盘：\n- 3500.00 挂 30 ETH\n- 3501.50 挂 45 ETH\n- 3503.00 挂 50 ETH\n计算实际成交 ETH 数量、未成交取消数量及平均成交价。",
+    "input_params": {"ioc_qty": 100.0, "limit_price": 3502.00, "asks": [{"p": 3500.0, "s": 30.0}, {"p": 3501.5, "s": 45.0}, {"p": 3503.0, "s": 50.0}]},
+    "hidden_pitfalls": "在 3502.00 限制下，只能吃 ≤ 3502.00 的档位。3500.00 吃 30，3501.50 吃 45。累计成交 75 ETH。剩余 25 ETH 遇 3503.00 超过限价，立即 Cancel 取消。均价 = (30*3500 + 45*3501.5) / 75 = (105000 + 157567.5)/75 = 262567.5 / 75 = 3500.90 USDT。",
+    "ground_truth_formula": "filled_qty = 75.0; cancelled_qty = 25.0; avg_price = 3500.90",
+    "expected_output": {"filled_qty": 75.0, "cancelled_qty": 25.0, "avg_fill_price": "3500.90"},
+    "red_team_attack_vector": "所有卖单价都高于限价时，成交量为 0，程序出现 0/0 除零异常。",
+})
+
+cases.append({
+    "id": "CASE-18",
+    "category": "slippage_penetration",
+    "name": "跨期套利双腿滑点不同步(Legging Risk)导致风险敞口暴露",
+    "description": "做多近月合约 100 手，做空远月合约 100 手进行期现/跨期套利。近月腿以期望价格 2000.0 成交，远月腿遭遇流动性枯竭发生 8 个 tick (0.5/tick) 的恶性负滑点。每手合约乘数 10。计算由于腿间滑点造成的即时无对冲损失。",
+    "input_params": {"contracts": 100, "multiplier": 10, "slippage_ticks": 8, "tick_val": 0.5},
+    "hidden_pitfalls": "总滑点价格偏差 = 8 * 0.5 = 4.0 点。远月做空，在更低的价格卖出，单手损失 4.0 * 10 = 40 点/USD。100 手总损失 = 100 * 40 = 4,000 USD。套利利差可能原本只有 2,000 USD，直接导致策略由盈转亏。",
+    "ground_truth_formula": "loss = contracts * multiplier * slippage_ticks * tick_val",
+    "expected_output": {"immediate_loss": 4000.0, "is_spread_wiped": True},
+    "red_team_attack_vector": "单腿完全成交另一腿超时拒单时，敞口变为 100% 裸方向暴露。",
+})
+
+# --- 4. Timezone & Daylight Saving Time (CASE-19 ~ CASE-24) ---
+cases.append({
+    "id": "CASE-19",
+    "category": "tz_dst_misalignment",
+    "name": "美股夏令时切换日(3月第二个周日)K线时间戳对齐陷阱",
+    "description": "2026年3月8日美国进入夏令时(EDT, UTC-4)，此前为冬令时(EST, UTC-5)。美股开盘时间固定为纽约当地时间 09:30。计算 2026-03-06 (周五冬令时) 与 2026-03-09 (周一夏令时) 对应的 UTC 开盘时间戳与北京时间(UTC+8)。",
+    "input_params": {"dates": ["2026-03-06", "2026-03-09"], "ny_open_local": "09:30:00"},
+    "hidden_pitfalls": "很多量化系统固定写死 UTC+8 晚上 22:30 或 21:30 开盘。2026-03-06 冬令时(UTC-5): 09:30 EDT前是 14:30 UTC，北京时间 22:30。2026-03-09 夏令时(UTC-4): 09:30 是 13:30 UTC，北京时间 21:30！提前了整整 1 小时。如果写死时间，策略将在开盘前 1 小时下空单或延迟 1 小时错失行情。",
+    "ground_truth_formula": "2026-03-06: UTC 14:30:00, BJT 22:30:00; 2026-03-09: UTC 13:30:00, BJT 21:30:00",
+    "expected_output": {
+        "2026-03-06": {"utc": "14:30:00", "bjt": "22:30:00", "tz_offset": "-05:00"},
+        "2026-03-09": {"utc": "13:30:00", "bjt": "21:30:00", "tz_offset": "-04:00"}
+    },
+    "red_team_attack_vector": "切换周末那一天(3月8日凌晨2点跳过到3点)，时间计算库抛出 NonExistentTimeError 导致常驻守护进程崩溃。",
+})
+
+cases.append({
+    "id": "CASE-20",
+    "category": "tz_dst_misalignment",
+    "name": "欧洲与美国夏令时切换两周时间差错位",
+    "description": "美国于 3 月第二个周日(2026-03-08)切换夏令时，而欧洲(伦敦/法兰克福)于 3 月最后一个周日(2026-03-29)切换夏令时。在 2026-03-16 该周，伦敦(GMT, UTC+0)与纽约(EDT, UTC-4)的时差是多少？相比正常冬令时发生何种变化？",
+    "input_params": {"date": "2026-03-16", "ny_tz": "America/New_York", "london_tz": "Europe/London"},
+    "hidden_pitfalls": "正常冬令时纽约(UTC-5)与伦敦(UTC+0)时差为 5 小时；正常夏令时纽约(UTC-4)与伦敦(UTC+1)时差也为 4 小时(欧洲夏令时BST为UTC+1)。但在中间这 2-3 周窗口：纽约已经是夏令时(UTC-4)，而伦敦仍在冬令时(UTC+0)，时差变为 4 小时！欧美跨市场统计套利策略若固定按 5 小时重叠计算将彻底错乱。",
+    "ground_truth_formula": "london_utc_offset = 0; ny_utc_offset = -4; diff_hours = 4",
+    "expected_output": {"hours_diff": 4, "normal_winter_diff": 5, "is_divergent_window": True},
+    "red_team_attack_vector": "硬编码 offset=5 计算重叠交易时段，导致策略在休市期发送活跃交易指令。",
+})
+
+cases.append({
+    "id": "CASE-21",
+    "category": "tz_dst_misalignment",
+    "name": "跨日 24 小时 K 线合成中的 23 小时与 25 小时日柱异常",
+    "description": "构建日 K 线（Daily Bar）。夏令时开始日当天当地只有 23 小时，夏令时结束日当天当地有 25 小时。若策略通过将每小时 24 根 1h K 线简单累加合成日 K，将遇到缺失 1 根或多出 1 根 1h 数据的断言失败。",
+    "input_params": {"spring_forward_hours": 23, "fall_back_hours": 25, "standard_hours": 24},
+    "hidden_pitfalls": "量化回测框架写死 `assert len(hourly_bars) == 24`，在 3 月夏令时切入日遇到 23 根直接抛错终止回测；在 11 月切出日遇到 25 根覆盖重复数据。",
+    "ground_truth_formula": "daily_bar_volume = sum(actual_hourly_bars_in_local_day)",
+    "expected_output": {"spring_count": 23, "fall_count": 25, "fixed_assert_safe": False},
+    "red_team_attack_vector": "历史回测在 2026-11-01 遭遇重复时间戳 01:30:00 (AmbiguousTimeError)，字典 key 被后者覆盖丢失 1 小时成交量。",
+})
+
+cases.append({
+    "id": "CASE-22",
+    "category": "tz_dst_misalignment",
+    "name": "数字货币 7x24 UTC 结算与传统金融 T+1 结算日错位",
+    "description": "CME 比特币期货于芝加哥时间周五 17:00 (UTC 22:00) 休市，周日 17:00 开市。加密原生交易所(如 Binance) 7x24 不停机，每天 UTC 00:00 切日。计算在周五 UTC 23:00 时，CME 与币安当前的交易日归属。",
+    "input_params": {"timestamp_utc": "2026-03-20T23:00:00Z"},
+    "hidden_pitfalls": "此时币安交易日为 2026-03-20(进行中)；CME 已经休市，下一交易日为下周一 2026-03-23。如果对冲系统要求每日日终平衡，会因为结算日归属错位造成高达数百万元的单边“虚拟”资金敞口报警。",
+    "ground_truth_formula": "binance_session = '2026-03-20'; cme_session = 'CLOSED_WEEKEND'",
+    "expected_output": {"binance_status": "OPEN", "cme_status": "CLOSED", "is_calendar_mismatched": True},
+    "red_team_attack_vector": "在周末强行向 CME API 发单导致致命未处理异常。",
+})
+
+cases.append({
+    "id": "CASE-23",
+    "category": "tz_dst_misalignment",
+    "name": "高频毫秒级时间戳纳秒截断与单调时钟(Monotonic)回拨",
+    "description": "两个行情数据包到达：P1 硬件时间戳 1774320000.123456789 秒，P2 1774320000.123456788 秒(因为 NTP 时间校准发生了 1 纳秒系统时钟回拨)。计算两包时间差 Δt。",
+    "input_params": {"t1_ns": 1774320000123456789, "t2_ns": 1774320000123456788},
+    "hidden_pitfalls": "若直接用 Wall Clock: Δt = t2 - t1 = -1 ns。回测或高频风控出现负时间延迟，导致计算出的事件触发速度为负数(超光速)，或者因 `assert dt >= 0` 崩溃。必须使用单调时钟 `clock_gettime(CLOCK_MONOTONIC)`。",
+    "ground_truth_formula": "dt_wall = -1; safe_dt = max(0, dt_wall) or use CLOCK_MONOTONIC",
+    "expected_output": {"wall_delta_ns": -1, "is_clock_backward": True, "monotonic_required": True},
+    "red_team_attack_vector": "闰秒(Leap Second)插入或虚拟机迁移导致几百毫秒时间回退引起死锁。",
+})
+
+cases.append({
+    "id": "CASE-24",
+    "category": "tz_dst_misalignment",
+    "name": "跨国多资产港股(无夏令时)+欧股(夏令时)套利开盘同步",
+    "description": "香港交易所(HKEX, UTC+8, 无夏令时) 09:30 开盘，16:00 收盘。伦敦(LSE, 夏令时 BST, UTC+1) 08:00 开盘。计算港股收盘瞬间(HKT 16:00)，伦敦处于当地时间几点？双方共同重叠交易时间有几小时？",
+    "input_params": {"hk_close_hkt": "16:00:00", "hk_tz": "Asia/Hong_Kong", "london_tz": "Europe/London", "london_open_bst": "08:00:00"},
+    "hidden_pitfalls": "HKT 16:00 = UTC 08:00。在夏令时期间，伦敦为 UTC+1，因此当地时间为 09:00！而伦敦是 08:00 开盘，所以重叠交易时间为 08:00 到 09:00 恰好 1 个小时！如果是冬令时(UTC+0)，HKT 16:00 是伦敦 08:00，刚好伦敦开盘港股就收盘，重叠为 0 小时！夏冬令时决定了是否存在 1 小时的双边重叠交易套利窗口。",
+    "ground_truth_formula": "london_time_at_hk_close = '09:00:00'; overlap_summer_hours = 1.0; overlap_winter_hours = 0.0",
+    "expected_output": {"london_local_time": "09:00:00", "overlap_summer_hours": 1.0, "overlap_winter_hours": 0.0},
+    "red_team_attack_vector": "忽略夏令时导致在冬令时尝试执行重叠套利交易造成挂单超时拒单。",
+})
+
+# --- 5. Adjustment Factor Zero-Division & Precision Collapse (CASE-25 ~ CASE-30) ---
+cases.append({
+    "id": "CASE-25",
+    "category": "adjustment_factor",
+    "name": "巨额高送转(10送转30股)除权除息价格向下穿透与前复权负数",
+    "description": "某股票除权前收盘价 28.00 元。公司执行分配方案：每 10 股转增 30 股，并派发现金红利 3.00 元(含税)。计算除权除息基准价(Ex-right Price)。若历史某日股价为 1.20 元，以前复权公式计算该历史价是否为负数？",
+    "input_params": {"close_pre": 28.00, "bonus_shares": 0, "transfer_shares": 30, "dividend_cash_per_10": 3.00, "hist_price": 1.20},
+    "hidden_pitfalls": "每股转增比例 E = 30 / 10 = 3.0；每股派息 D = 3.00 / 10 = 0.30。除权价 P_ex = (28.00 - 0.30) / (1 + 3.0) = 27.70 / 4.0 = 6.925 元。在很多 A 股历史极度便宜的股票中，若使用减法前复权(定额调整)，历史价格 1.20 - 调整额会直接变成负价格！一旦价格变负，计算对数收益率 log(P_t / P_t-1) 将触发 math domain error (负数无对数)！必须使用前复权乘法因子。",
+    "ground_truth_formula": "P_ex = (close_pre - dividend_per_share) / (1 + transfer_per_share)",
+    "expected_output": {"ex_price": "6.925", "adj_multiplier": "0.247321", "log_return_safe": True},
+    "red_team_attack_vector": "使用定额前复权导致股价 ≤ 0 使得量化因子(PE/PB/收益率)产生大量 NaN/Inf 毒死模型训练。",
+})
+
+cases.append({
+    "id": "CASE-26",
+    "category": "adjustment_factor",
+    "name": "连续 50 次微小分红除权因子浮点数下溢与累积乘法漂移",
+    "description": "长牛股票连续 50 年每年派发 2% 股息，复权乘数理论值为 (1 - 0.02)^50 = 0.98^50 ≈ 0.36416968... 采用 float32 与 float64 分别计算，分析精度坍塌与累积截断误差。",
+    "input_params": {"annual_rate": 0.98, "years": 50},
+    "hidden_pitfalls": "float32 在连续相乘后，尾数精度丢失严重；若按每日微小调整(例如债券每日计提应计利息除以 365)，连续相乘 10000 次会发生显著漂移。需要 Decimal 精确计算。",
+    "ground_truth_formula": "Decimal('0.98') ** 50",
+    "expected_output": {"exact_multiplier": "0.3641696800871167448378553018", "round_6": "0.364170"},
+    "red_team_attack_vector": "乘数连续下溢至 0.000000 时，引发全局资产除以因子时的 ZeroDivisionError。",
+})
+
+cases.append({
+    "id": "CASE-27",
+    "category": "adjustment_factor",
+    "name": "缩股(Reverse Stock Split 10合1)与除权因子倒数除零防御",
+    "description": "某美股仙股濒临退市，执行 10 股合并为 1 股(1-for-10 reverse split)。股价由 0.40 美元变为 4.00 美元。计算后复权因子与成交量调整倍数。",
+    "input_params": {"pre_split_price": 0.40, "ratio": 0.1},
+    "hidden_pitfalls": "成交量调整必须与价格调整相反！价格乘以 10，则历史成交量必须除以 10(乘以 0.1)。若量化系统把价格调整因子和成交量调整因子搞混，成交量会被放大 100 倍，错误触发天量异动风控警报。",
+    "ground_truth_formula": "post_split_price = 4.00; volume_adj_factor = 0.1; price_adj_factor = 10.0",
+    "expected_output": {"new_price": "4.00", "vol_factor": "0.10", "price_factor": "10.00"},
+    "red_team_attack_vector": "合并比例传入 0 (如公司清算)，除零异常没有防护导致行情服务器瘫痪。",
+})
+
+cases.append({
+    "id": "CASE-28",
+    "category": "adjustment_factor",
+    "name": "配股缴款失败与配股除权价假性除权回填",
+    "description": "公司宣布 10 配 3，配股价 10.00 元。除权日前收盘价 20.00 元。但配股认购率不足 70% 导致配股失败全额退款。量化系统在除权日已将价格自动按配股成功除权计算。计算错误除权价与纠正后真实价格差额。",
+    "input_params": {"close_pre": 20.00, "allotment_ratio": 0.3, "allotment_price": 10.00},
+    "hidden_pitfalls": "错误除权价 = (20.00 + 0.3 * 10.00) / (1 + 0.3) = 23.00 / 1.3 ≈ 17.6923 元。若配股失败，真实基准价应依然是 20.00 元！两者差额达 2.3077 元(跌幅假象 -11.5%)。若量化策略在集合竞价看到 -11.5% 误判为暴跌触发抄底，将损失惨重。",
+    "ground_truth_formula": "err_ex_price = (20.0 + 0.3*10.0)/1.3; true_price = 20.0; diff = 20.0 - err_ex_price",
+    "expected_output": {"err_ex_price": "17.6923", "diff_gap": "2.3077", "false_drop_pct": "11.54"},
+    "red_team_attack_vector": "除权除息数据源异步发布更正公告时，系统未加版本锁导致双重除权。",
+})
+
+cases.append({
+    "id": "CASE-29",
+    "category": "adjustment_factor",
+    "name": "可转债转股溢价率与强赎除权时的负溢价套利边界",
+    "description": "正股价 15.00 元，转股价 12.00 元，转债现价 126.00 元。公司公告触发强赎并在除权日前强制转股。计算当前转股价值、转股溢价率。若转债价格因流动性踩踏跌至 122.00 元，套利空间是多少？",
+    "input_params": {"stock_price": 15.00, "convert_price": 12.00, "cb_price": 126.00, "discount_cb_price": 122.00},
+    "hidden_pitfalls": "转股价值 = (正股价 / 转股价) * 100 = (15.00 / 12.00) * 100 = 125.00 元。正常溢价率 = (126.00 - 125.00) / 125.00 = +0.8%。当转债跌至 122.00 时，折价转股溢价率 = (122.00 - 125.00) / 125.00 = -2.4% (即存在 3 元/张，2.46% 的无风险套利空间)。注意：若 T+1 才能卖出正股，需承担隔夜正股下跌风险。",
+    "ground_truth_formula": "conversion_val = (stock_price / convert_price) * 100; premium_pct = (cb_price - conversion_val) / conversion_val * 100",
+    "expected_output": {"conversion_value": 125.0, "normal_premium_pct": 0.8, "arbitrage_spread": 3.0, "discount_pct": -2.4},
+    "red_team_attack_vector": "转股价为 0 时引发除零崩溃；正股停牌无法对冲时的流动性风险黑洞。",
+})
+
+cases.append({
+    "id": "CASE-30",
+    "category": "adjustment_factor",
+    "name": "ETF 实物申赎清单(PCF)现金替代与现金差额多除溢价",
+    "description": "某沪深300 ETF 最小申赎单位包含成分股 A 1000 股。该股因重大事项停牌，PCF 规定为“必须现金替代”，现金替代溢价比例 20%，停牌前收盘价 50.00 元。基金公司在 T+2 最终代买入成本为 58.00 元。计算申购者预缴金额、最终多退少补差额。",
+    "input_params": {"shares": 1000, "pre_close": 50.00, "premium_ratio": 0.20, "actual_buy_price": 58.00},
+    "hidden_pitfalls": "预缴替代金额 = 1000 * 50.00 * (1 + 0.20) = 60,000 元。实际买入成本 = 1000 * 58.00 = 58,000 元。退款金额 = 60,000 - 58,000 = 2,000 元。若最终买价为 62.00 元，则需要补缴 2,000 元。许多套利模型把预缴金额当成实际成本计算折溢价，导致以为出现折价套利机会实际发生穿透亏损。",
+    "ground_truth_formula": "prepay = shares * pre_close * (1 + premium_ratio); actual = shares * actual_buy_price; refund = prepay - actual",
+    "expected_output": {"prepay_cash": 60000.0, "actual_cost": 58000.0, "refund_to_investor": 2000.0},
+    "red_team_attack_vector": "停牌股开盘连续涨停，最终买入价 > 预缴上限，未向客户追索到补缴款造成基金资产穿仓。",
+})
+
+with open("benchmarks/matrix-cases.json", "w", encoding="utf-8") as f:
+    json.dump(cases, f, ensure_ascii=False, indent=2)
+
+print(f"成功生成 {len(cases)} 个高危量化计算与精度陷阱测试用例 -> benchmarks/matrix-cases.json")

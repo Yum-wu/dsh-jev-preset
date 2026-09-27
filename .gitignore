@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# DSH Local Test State
+.dsh-test-state/
+*.tmp
+_tmp-*
+__*
+*.bak*
+
+# OS Files
+Thumbs.db
+Desktop.ini
+.DS_Store

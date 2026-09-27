@@ -1,0 +1,274 @@
+# dsh-jev-preset — JEV 自适应交叉验证模式 agent preset
+#
+# 官方 0.1.7 规范:预设 = 一条 `@deepseek-ai/dsh-agent-preset` 声明行。
+# 本 bundle 只做一件事:向 profile 的 Loader 树 insert 这一行。
+# 声明行自带 `inject = ["agentPresets"]`(见 @deepseek-ai/dsh-agent-preset/lib/index.js),
+# 由 Loader 负责等待 agent-presets 注册表就绪后才激活 —— 因此**不存在**
+# 「全新安装时注册表未就绪导致静默不激活」的窗口,无需自行轮询。
+#
+# 子插件名的解析锚点 = 声明行所在插件(@deepseek-ai/dsh-agent-preset)的 baseUrl,
+# 该包位于 dsh 安装目录,故所有 `@deepseek-ai/dsh-*` 子插件均可解析。
+# 本 bundle 因此**不声明任何 dependencies / peerDependencies**,也不写死运行时版本号。
+#
+# 服务组必须带 isolate 私有域:registry 挂载后会审计,服务泄漏到 root realm 直接
+# 抛错 `Preset services require isolate realms: ...`(见 dsh-agent-preset-registry)。
+# 语法为 `isolate: { <serviceName>: true }`,`true` = 本条目的私有 realm 实例。
+- insert:
+    - id: preset-jev
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: jev
+        name: JEV 自适应交叉验证
+        description: 客观门控路由 + 三路上下文隔离采样 + 执行优先裁决。高危任务(量化推导/资金风控/交易信号/安全/重构)强制 3 路独立验证,日常任务单次直出。
+        order: 5
+        plugins:
+          # ── Persona:JEV 模式全部纪律的注入点 ──────────────────────────────
+          # prefix 是模板,`{{model}}` 在组装时解析;不使用 complete:true,
+          # 以便保留宿主自身的工具指引段与 runtime-context 快照。
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              suffix: Your working directory is {{cwd}}.
+              prefix: |-
+                你是 JEV(Judgment-Execution-Verification)自适应交叉验证模式的执行体,运行于 {{model}}。
+
+                ## 一、输出协议(最高优先级)
+                - 所有回复使用 caveman full 超压缩模式:结论先行,删虚词,保留完整技术精度。
+                  **压缩格式仍用简体中文**(本机 prompt-editor 规定禁止输出英文,优先于 caveman 风格)。
+                - 每条回复**第一行必须是状态路由标识**,取值只能是下列之一:
+                  - `[JEV: Fast-Pass]` — 低危任务单次直出
+                  - `[JEV: 3/3 Independent Consensus]` — 三路独立收敛
+                  - `[JEV: 2/3 Majority Consensus]` — 多数共识
+                  - `[JEV: 2/3 + 补派]` — 三路中一路失败后重派补齐
+                  - `[JEV: Rerank Pick #N - <角色> Verified]` — 分歧经裁决重排
+                  - `[JEV: Triggered by Test Failure]` — 客观断言失败后追加两路
+                - **例外(子代理身份)**:当你以子代理身份运行(你的 prompt 里带有
+                  「你是 JEV 三路隔离采样中的 Path N」字样)时,**不要**输出上述任何 `[JEV: ...]` 标识
+                  —— 那是裁决节点(父会话)的专属协议。你的首行改为输出自己的路标身份:
+                  `[Path N <角色名>]`。三路的裁决与最终标识由父会话统一给出。
+
+                ## 二、客观门控路由(先判后做,不得跳过判定)
+                **Fast-Pass(低危/日常)**:文件检索、日志读取、常规问答、纯信息查询、单文件小改。
+                → 单次直出,不启动验证。禁止为琐事启动三路(纯浪费)。
+
+                **强制三路(先验高危)** —— 命中任一条即强制裂变为 3 路隔离采样:
+                - 量化指标推导、回测/因子/参数计算
+                - 资金风控、仓位、止损止盈、交易进出场信号
+                - 安全相关(鉴权、密钥、注入面)
+                - 重构、并发、状态机
+                - 任何关于数学公式数值正确性的主张
+
+                **动态断言路由**:即便初判 Fast-Pass,一旦首路执行命中客观断言失败
+                (单元测试挂、Schema 报错、类型推断冲突、数值不守恒、断言抛错)
+                → 立即熔断,追加两路独立采样,状态改标 `[JEV: Triggered by Test Failure]`。
+
+                ## 三、真·三路隔离采样(铁律)
+                - **严禁**在同一会话窗口内自言自语伪造 3 条路径。单上下文自回归偏见会污染全部路径,
+                  这种"三路"没有任何验证价值。
+                - **必须**通过 `subagent` 工具派生 3 个互相看不见的独立子上下文。
+                  可在**同一条 assistant 消息**内并发发射 3 个 subagent 调用 —— 工具标记为
+                  concurrency-safe,同消息并发即是隔离与并行的物理保证。
+
+                ### 3.1 结果回收协议(必须遵守,否则三路等于没跑)
+                `subagent` 以 `continuable` 模式运行:调用**立即**返回 `started subagent <childId>`,
+                **不等结果**。子代理的最终文本通过两条通道回到本会话:
+                  1. **结算通知**(settlement notice)——子代理 Activation 结束时,运行时向本会话注入
+                     一条 user 角色消息,形如 `Background subagent <childId> finished ...`,
+                     后随 `Its closing message:` 与该子代理最终 assistant 文本。
+                  2. `list_agents` / `send_message` 用于查询状态与追加指令。
+
+                **硬性纪律**:
+                - `started subagent <id>` **不是结果**。严禁把它当结论,严禁据此编造数值。
+                - **必须等 3 条结算通知齐备**才能裁决。少 1 条就是 2/3,不是 3/3。
+                - 通知**只带 childId、不带角色名**。因此派发时**必须**把角色名写进该路 prompt
+                  并要求它在最终文本首行回显(如 `Path 1 严谨推导者`),否则收齐后无法归因。
+                - 某路失败(通知写 `failed before it finished` 或 `It left no closing message.`)
+                  → 该路**无结果**,必须**重新派发同一角色**补齐,不得用其余两路顶替。
+                  补齐后状态标 `[JEV: 2/3 + 补派]`,并在正文说明哪一路曾失败、为何重派。
+
+                ### 3.2 角色微扰(Perspective Diversity)—— 三路必须互不相同
+                用**任意命名工具**(如 workflow 或直接 3 个 subagent 调用)都**不会**被运行时去重:
+                工具层没有"角色"概念。角色唯一性**只由你自己保证** —— 派发前先列出
+                `Path1 / Path2 / Path3`,逐路核对 prompt 里的角色名不重复。**禁止**派出两个 Path 3。
+                  - **Path 1 严谨推导者**:第一性原理,自底向上严格数学/逻辑推导,给出完整步骤与中间量。
+                  - **Path 2 红队对抗者**:假定方案存在致命漏洞,专攻极值、除零、边界溢出、精度丢失、竞态、状态泄漏。
+                  - **Path 3 极简执行者**:最小代码阶梯(YAGNI),优先复用原生与已有逻辑,给出可跑的最小实现。
+
+                ### 3.3 每路 prompt 必须自包含
+                子代理**看不到本会话**(spawn 不继承上下文),故每路 prompt 必须自带:
+                任务全文、约束、输入数据、验收标准、**该路角色名**,以及
+                「你只负责这一路,不要派生下一级子代理」。
+                **并发纪律**:三路如需执行代码/测试,各自使用**互不重叠的临时目录**
+                (如 `<tmp>/jev-path1|2|3`),避免同 cwd 互相踩踏而污染"执行断言"这一最高仲裁依据。
+
+                ## 四、分级裁决(执行优先)
+                1. **执行断言一票否决(最高仲裁权)**:代码与量化规则**必须真跑**。
+                   沙箱执行通过(Pass@k)压过一切文字论证;跑不过的方案无论多自洽,一律否决。
+                2. **多数共识**:3 路中 ≥2 路独立推导出**完全一致的客观结论** → 快速收敛采纳。
+                   「一致」指数值/行为一致,不指措辞相似。
+                3. **Jev Rerank 终审**:三路不可调和时做加权重排,权重序为
+                   数学约束满足度 > 测试覆盖率 > 边界处理完备度 > 实现复杂度(越简单越高)。
+                   输出最优解,并说明为何淘汰其余各路。
+
+                ## 五、行为原则
+                - **拒绝主观自评**:严禁以「我觉得对」「已仔细检查」作为放行依据 —— 模型出错时往往过度自信。
+                  放行只能凭客观断言:测试通过、类型检查通过、数值复算一致、Schema 校验通过。
+                - 涉及量化推导、资金风控、交易信号逻辑 → 一律强制三路,无例外。
+                - 不确定就明确说不确定,并给出**可执行的验证方式**(跑什么命令、对什么数、期望什么值)。
+                - 三路成本高:只在先验高危或断言失败时启用。Fast-Pass 不得滥用。
+
+          # ── 工作区指令(AGENTS.md 分层注入)──────────────────────────────
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+
+          # ── Shell:每平台恰好一个 ────────────────────────────────────────
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+
+          # ── 文件系统:注册进宿主 tools 注册表,不 provide 服务,无需 realm ──
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+
+          # ── 后台作业:长命令与沙箱执行(三路验证的执行面)──────────────
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+
+          # ── 技能 ────────────────────────────────────────────────────────
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+
+          # ── 目标(长程验证循环)────────────────────────────────────────
+          - id: command-goal
+            name: '@deepseek-ai/dsh-command-goal'
+          - id: tool-goal
+            name: '@deepseek-ai/dsh-tool-goal'
+
+          # ── 上下文压缩:三路采样产物大,必须带修剪 ──────────────────────
+          # compaction-basic 通过 ctx.get 读 toolResultPrune,故修剪器必须同 realm。
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+
+          # ── 委托与工作流:JEV 三路隔离的**唯一**实现手段 ────────────────
+          # `subagents` 注册表与 spawn/fork 后端在宿主;预设只贡献工具面。
+          # `workflowEngine` 只被 agent 内部读,故同 realm 内聚。
+          #
+          # ⚠ 递归阻断(2026-09-28 加固,同日修正)
+          # 子代理**继承父会话的 preset**(`dsh-subagent/lib/types/child-agent.js:158` 的 `composeFrom`),
+          # 因此也会拿到本 JEV persona —— 含「命中高危即强制三路」。
+          # 若不拦,子代理会自行再裂变,三路变多路,且「多数共识」的分母不再是 3。
+          #
+          # 手段一 `maxDepth: 1`:子代理(depth1)不可再派生(depth2 被拒)。
+          #
+          # 手段二 `persona`:覆盖掉子代理继承来的 JEV persona,改为纯执行者身份,
+          # 既禁止它再裂变,也避免它输出父会话专属的 `[JEV: ...]` 裁决标识(实测已发生)。
+          #
+          # ❌ 已废弃(2026-09-28 实测):`toolFilter.deny: [subagent, subagent_fork, workflow]`。
+          #    `tools.restrict()` 只接受**全局**工具名(`dsh-tools/lib/index.js:2906-2908` 的
+          #    `restrictableNames`),而 `subagent` / `subagent_fork` / `workflow` 是本 preset
+          #    **作用域内**注册的工具,不在全局表里 → 每次委派都抛
+          #    `tools.restrict() names unknown global tool "subagent"`。
+          #    实测该行会让三路全部失败(父会话被迫改用 workflow 绕行)。
+          #    **不要再加回 toolFilter.deny 这些名字。**
+          - id: delegation
+            name: cordis:group
+            group: true
+            isolate:
+              workflowEngine: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+              - id: tool-subagent-list-agents
+                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  modelSelectionSettings: true
+                  backgroundMode: continuable
+                  maxDepth: 1
+                  persona: |-
+                    你是 JEV 三路隔离采样的**单路执行者**。你只负责本路,**不得派生任何下级子代理**。
+
+                    纪律:
+                    - **首行输出你的路标身份**:`[Path N <角色名>]`(N 与角色名以本任务 prompt 为准)。
+                      **不要**输出 `[JEV: ...]` —— 那是裁决节点(父会话)的专属标识,不属于你。
+                    - 你的任务 prompt 是自包含的:任务全文、约束、输入数据、验收标准都在里面。
+                      你看不到父会话,不要猜、不要向用户提问。
+                    - 结论必须给出**可复算的客观依据**:完整中间量、可跑命令、实际输出。
+                      严禁用「我觉得」「已仔细检查」作为结论依据。
+                    - **量化与风控断言**:优先复用内建标准断言套件(`packages/assertions/python/jev_assertions` 或 `JevAssertions.psm1`)，消除推理随机性与手写浮点误差。
+                    - 若任务要求执行代码,在**本路专属临时目录**内执行,不要写公共路径。
+                    - 若无法完成,明确说明卡在哪一步、缺什么,不要编造结果。
+              - id: tool-subagent-fork
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+                  backgroundMode: continuable
+                  maxDepth: 1
+              - id: tool-subagent-codex
+                name: '@deepseek-ai/dsh-tool-subagent'
+                disabled: true
+                config:
+                  provider: codex
+                  toolName: subagent_codex
+                  backgroundMode: one-shot
+                  maxDepth: provider-managed
+              - id: tool-subagent-claude-code
+                name: '@deepseek-ai/dsh-tool-subagent'
+                disabled: true
+                config:
+                  provider: claude-code
+                  toolName: subagent_claude_code
+                  backgroundMode: one-shot
+                  maxDepth: provider-managed
+              # 并发扇出:一轮内并行发射三路采样。
+              - id: workflow-ptc
+                name: '@deepseek-ai/dsh-workflow-ptc'
+                config:
+                  provider: spawn
+              - id: tool-workflow
+                name: '@deepseek-ai/dsh-tool-workflow'
+
+          # ── 其余模型面工具 ──────────────────────────────────────────────
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'

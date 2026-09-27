@@ -1,0 +1,44 @@
+{
+  "name": "dsh-jev-preset",
+  "version": "1.1.0",
+  "description": "JEV (Judgment-Execution-Verification) Adaptive Cross-Verification Preset for DeepSeek Harness: Objective Gated Routing + 3-Way Context-Isolated Sampling + Execution-First Arbitration.",
+  "type": "module",
+  "main": "validate.mjs",
+  "scripts": {
+    "test": "node --test tests/test-*.mjs && python tests/test_assertions.py",
+    "test:unit": "node --test tests/test-*.mjs",
+    "test:assertions": "python tests/test_assertions.py",
+    "test:pwsh": "pwsh -File tests/test_pwsh_assertions.ps1",
+    "test:benchmark": "python benchmarks/run_stress_matrix.py",
+    "validate": "node validate.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "cordis.patch.yml",
+    "README.md",
+    "README_EN.md",
+    "packages",
+    "benchmarks",
+    "docs"
+  ],
+  "keywords": [
+    "deepseek",
+    "dsh",
+    "agent-preset",
+    "jev",
+    "cross-verification",
+    "quantitative",
+    "risk-control",
+    "sandbox"
+  ],
+  "author": "Yum-wu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Yum-wu/dsh-jev-preset.git"
+  }
+}
