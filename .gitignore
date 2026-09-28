@@ -12,7 +12,8 @@ __pycache__/
 .dsh-test-state/
 *.tmp
 _tmp-*
-__*
+__*/
+!**/__init__.py
 *.bak*
 
 # OS Files
