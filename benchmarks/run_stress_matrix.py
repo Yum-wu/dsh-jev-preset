@@ -281,19 +281,13 @@ def main():
         cases = json.load(f)
     
     results = []
-    p1_convergence_times = []
     p2_attack_hits = 0
     p3_pass_count = 0
     consensus_count = 0
-    
-    start_time = time.time()
-    
+
     for case in cases:
-        c_start = time.time()
         p1 = run_case_path1(case)
-        p1_time = time.time() - c_start
-        p1_convergence_times.append(p1_time)
-        
+
         p2 = run_case_path2(case)
         if p2["status"] == "success" and p2["vulnerability_mitigated"]:
             p2_attack_hits += 1
@@ -314,10 +308,11 @@ def main():
             "path2": p2,
             "path3": p3,
             "consensus": consensus,
-            "latency_ms": round(p1_time * 1000, 2)
+            # ⚠️ latency_ms 已移除(2026-09-28)：本地 if-elif 分支的耗时是对
+            # CPU 噪声的测量，既非模型收敛速度也无诊断价值；且它使产物非确定性
+            # (每次重跑数值都变)，导致 CI 无法用 diff 守卫生成物漂移。
+            # 真实延迟须经隔离子代理实测后另行记录。
         })
-    
-    total_time = time.time() - start_time
     
     summary = {
         "total_cases": len(cases),
@@ -332,7 +327,8 @@ def main():
         "consensus_rate_3_of_3": None,
         "consensus_rate_3_of_3_note": "未测量：三条“路径”同源于同一份代码，非独立共识。",
         "case_inventory_count": len(cases),
-        "total_execution_time_s": round(total_time, 3),
+        # ⚠️ total_execution_time_s 已移除(2026-09-28)：同上，本地分支耗时无意义
+        # 且破坏产物确定性。脚本运行耗时由 CI 日志/外部计时获取，不进产物。
         "results": results
     }
     

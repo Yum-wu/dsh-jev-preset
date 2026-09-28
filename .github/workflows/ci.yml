@@ -42,6 +42,20 @@ jobs:
         run: |
           python benchmarks/run_stress_matrix.py
 
+      - name: Guard Generated Artifacts Not Modified By Scripts
+        shell: bash
+        run: |
+          # run_stress_matrix.py 会重写 benchmark-results.json。
+          # 若重跑后产物与入库版本不一致,说明脚本改了输出却没同步入库
+          # (或结果依赖环境),必须显式提交,不能静默漂移。
+          # 用 --exit-code 而非 --quiet,以便 CI 日志显示差异。
+          if ! git diff --exit-code -- benchmarks/benchmark-results.json; then
+            echo "::error::benchmarks/benchmark-results.json 被脚本重写且与入库版本不一致。"
+            echo "::error::请本地跑 python benchmarks/run_stress_matrix.py 后提交结果,或确认输出已确定性。"
+            exit 1
+          fi
+          echo "生成物与入库版本一致(确定性输出)"
+
       - name: Run Circuit Breaker Unit Test
         run: |
           node tests/test-circuit-breaker.mjs

@@ -9,7 +9,6 @@
   "consensus_rate_3_of_3": null,
   "consensus_rate_3_of_3_note": "未测量：三条“路径”同源于同一份代码，非独立共识。",
   "case_inventory_count": 30,
-  "total_execution_time_s": 1.201,
   "results": [
     {
       "id": "CASE-01",
@@ -44,8 +43,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-02",
@@ -80,8 +78,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-03",
@@ -116,8 +113,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-04",
@@ -153,8 +149,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-05",
@@ -194,8 +189,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-06",
@@ -231,8 +225,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-07",
@@ -268,8 +261,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-08",
@@ -304,8 +296,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-09",
@@ -339,8 +330,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-10",
@@ -376,8 +366,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-11",
@@ -413,8 +402,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-12",
@@ -450,8 +438,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-13",
@@ -487,8 +474,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-14",
@@ -525,8 +511,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-15",
@@ -562,8 +547,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-16",
@@ -599,8 +583,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-17",
@@ -636,8 +619,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-18",
@@ -672,8 +654,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-19",
@@ -716,8 +697,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-20",
@@ -753,8 +733,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-21",
@@ -790,8 +769,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-22",
@@ -827,8 +805,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-23",
@@ -864,8 +841,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-24",
@@ -901,8 +877,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-25",
@@ -938,8 +913,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-26",
@@ -974,8 +948,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-27",
@@ -1011,8 +984,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-28",
@@ -1048,8 +1020,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-29",
@@ -1086,8 +1057,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     },
     {
       "id": "CASE-30",
@@ -1123,8 +1093,7 @@
         },
         "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。"
       },
-      "consensus": "[JEV: 3/3 Independent Consensus]",
-      "latency_ms": 0.0
+      "consensus": "[JEV: 3/3 Independent Consensus]"
     }
   ]
 }
