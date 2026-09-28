@@ -6,6 +6,19 @@
 
 ---
 
+> ⚠️ **本文件结论已部分更正(2026-09-28)**:
+> 我把 `combo/ds-flash` 与 `workbuddy2api/cn:hy4-preview` 当作两个独立模型,
+> 但 `combo/ds-flash` 实为 `workbuddy2api` 的 **round-robin 组合路由**
+> (见 `~/.opencodex/config.json` 的 `combos.ds-flash.targets`,4 个目标全是 workbuddy)。
+> 这是**伪重复(pseudoreplication)**,人为放大了样本量。
+>
+> 更正:实际独立模型 **3 个**(shangtang / opencode-zen / google-antigravity),
+> 不是 5 个。原"4/5 模型盲目"应更正为 **"2/3 独立模型盲目"**。
+>
+> **保留**:`gemini 100% vs ds-flash 11%` 仍成立(两者真独立)。
+> **更正**:"换模型 >> 加路数"过强 —— 更根本的解法是**题干结构化**,
+> 见 `EXP-D-ATTENTION-ROOT-CAUSE.md`(强调关键条件后,4/4 模型均 9/9)。
+
 ## 一、核心结果
 
 | 配置 | 正确/总 | 正确率 | 盲目率 | 平均 token/题 |
