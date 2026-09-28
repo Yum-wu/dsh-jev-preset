@@ -1,0 +1,25 @@
+[A] 官方 loadOverlayPatches 解析 bundle patch
+  OK    解析成功,1 个 patch 条目
+
+[B] 检查 !!js 表达式被保留为节点(未被求值)
+  OK    !!js 保留为 {__jsExpr} 节点: true
+  表达式: process.platform === 'win32' | process.platform !== 'win32'
+
+[C] 官方 applyEntryPatches 合入模拟 entry 树
+  OK    全部 patch 应用成功,无跳过
+
+[D] 合成结果校验
+  OK    preset-jev 行已合入
+        name   = @deepseek-ai/dsh-agent-preset
+        id     = jev
+        order  = 5
+        plugins= 17 行
+  OK    preset id 无冲突: standard, ptc, minimal, cordis, jev
+  OK    Loader 行 id 无冲突(6 行)
+  OK    insert 语义与官方一致(追加;单次加载只应用一层)
+  OK    原始树未被 mutate(5 行不变,官方 structuredClone 保护)
+
+============================================================
+官方代码路径验证全部通过 — bundle 可安全安装
+workflow-ptc row config: {"provider":"spawn"}
+P0 verdict: PASS - provider=spawn纯字符串,无表达式; !!js仅2处平台开关(process.platform),官方schema合法

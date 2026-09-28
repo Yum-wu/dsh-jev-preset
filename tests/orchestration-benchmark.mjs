@@ -1,15 +1,27 @@
 #!/usr/bin/env node
 /**
- * 阶段二：底层编排机制与异步协同优化对比基准测试
- * 
- * 对比实测：
- * 方式 A: 原生 subagent (continuable 后台 + settlement notice 异步回收)
- * 方式 B: workflow-ptc (parallel() 同步 barrier + 严格 schema/断言)
- * 
- * 并发压测与健壮性：
- * - 503 错误/超时注入下的断路器 (Circuit Breaker) 与指数退避重试
- * - 角色互斥锁 (Role Unique Registry)，彻底防止重复派发 (如重复派 Path 3)
- * - 压缩策略 (Compaction) 吞吐与长文本注意力保留度对比
+ * 阶段二：底层编排机制与异步协同对比基准测试
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠️ 诚实性声明 / HONESTY NOTICE — 2026-09-28
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 本脚本**不是**对 DSH 原生 subagent / workflow-ptc 的真实测量！
+ *
+ * 它用 `setTimeout(1~5ms)` 的本地 Promise 计时器模拟延迟，用 `JevRoleRegistry`
+ * 和 `JevCircuitBreaker` 两个纯 JS 类模拟角色分配与断路——全程没有创建任何
+ * subagent、没有调用任何 DSH API、没有触及任何模型。
+ *
+ * 因此它输出的数字（P50/P99 延迟、成功率、断路器恢复率、角色锁拦截率）都是对
+ * **本地计时器噪声的测量**，与真实编排机制无关，不能用来论证
+ * "方式 A vs 方式 B" 或 "角色锁有效"。
+ *
+ * Honest value 保留两处：
+ *   1. `JevRoleRegistry` 的**设计**（allocate 抛冲突 / settle 记状态 /
+ *      getMissingOrFailedRoles 补派）可直接移植为三路调度的内存状态机；
+ *   2. `JevCircuitBreaker` 的三态机（CLOSED/OPEN/HALF_OPEN）可作为
+ *      subagent 失败后的补派策略参考实现。
+ * 但"设计"≠"实证"：引用时请标注为模拟。
+ * ═══════════════════════════════════════════════════════════════════════════
  */
 
 import { performance } from 'node:perf_hooks'

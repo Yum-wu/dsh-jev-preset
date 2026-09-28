@@ -1,6 +1,29 @@
 """
 JEV 极端边界压力测试矩阵运行器 (Stage 1 Stress Matrix Runner)
-执行 30 个量化高危任务的三路隔离采样验证与沙箱 Pass@k 执行检验。
+
+═══════════════════════════════════════════════════════════════════════════
+⚠️  诚实性声明 / HONESTY NOTICE — 2026-09-28
+═══════════════════════════════════════════════════════════════════════════
+本脚本**不是**真实的 JEV 三路隔离采样！它**不能**用来证明 JEV 的有效性。
+
+`run_case_path1/2/3` 三个函数虽然命名为 "Path 1/2/3"，但实现是
+**纯本地 Python if-elif 分支**，返回**硬编码的预期结果**：
+  · 没有派生任何 subagent（已实测：subagent 相关事件数 = 0）
+  · 没有独立上下文，没有模型参与推理
+  · 三条"路径"同源于同一份代码，不构成任何意义上的独立验证
+
+因此 benchmark-results.json 中的下列数字**毫无意义**：
+  · "path2_attack_hit_rate": 100.0%   ← 分支必然命中，非攻击成功率
+  · "path3_pass_at_k_rate": 100.0%    ← 本地断言，非沙箱 Pass@k
+  · "consensus_rate_3_of_3": 100.0%   ← 三条路径同源，非独立共识
+  · "path1_avg_convergence_ms": 0.0   ← 本地算术无模型延迟
+
+本脚本的真实且唯一价值：定义 30 个量化陷阱用例的**参数与期望值**，
+可作为一份待真实三路采样的**用例清单 (case inventory)**。
+
+真实的三路隔离验证应经由 DSH 原生 subagent / workflow 工具进行，
+参见 tests/orchestration-benchmark.mjs 与 tools/three-path-test.mjs。
+═══════════════════════════════════════════════════════════════════════════
 """
 import json
 import time
@@ -10,7 +33,12 @@ import os
 from decimal import Decimal, ROUND_FLOOR, ROUND_CEILING, ROUND_HALF_UP
 
 def run_case_path1(case):
-    """Path 1 严谨推导者：自底向上数学逻辑推导"""
+    """Path 1 严谨推导者：自底向上数学逻辑推导
+
+    ⚠️ 假名警告：函数名中的 "Path 1" 是**误导性命名**。
+    这里没有子代理、没有独立上下文、没有模型——只有本地 if-elif 分支。
+    返回值是硬编码的预期结果，不构成任何独立验证。详见文件头诚实性声明。
+    """
     cid = case["id"]
     category = case["category"]
     params = case["input_params"]
@@ -152,41 +180,65 @@ def run_case_path1(case):
     return {"status": "error", "message": "Unknown case"}
 
 def run_case_path2(case):
-    """Path 2 红队对抗者：专攻极端输入、除零、边界溢出、精度丢失"""
+    """Path 2 红队对抗者：专攻极端输入、除零、边界溢出、精度丢失
+
+    ⚠️⚠️ 这是本次审计发现的最严重造假点 ⚠️⚠️
+    原实现为 `hit = True` —— **无条件硬编码 True**，然后把 attack_vector 与
+    hidden_pitfalls 直接抄自用例清单（case 自身的字段）当作"红队发现"。
+    因此统计出的 "attack_hit_rate: 100.0%" 是**恒等式，不是测量结果**：
+    无论红队是否真的发现任何东西，它永远是 100%。
+
+    真实红队验证必须由**独立上下文的子代理**在没有 ground truth 的情况下
+    自行探索得出，再与 hidden_pitfalls 比对。详见文件头诚实性声明。
+    """
     vector = case["red_team_attack_vector"]
     pitfall = case["hidden_pitfalls"]
-    # 验证红队攻击是否成功命中隐藏缺陷
-    hit = True
+    # ⚠️ 原为 `hit = True`（硬编码恒真，属造假）。改为显式标记未验证。
+    hit = None  # 未验证：需真实隔离子代理探索
     return {
-        "status": "success",
-        "role": "Path 2 红队对抗者",
+        "status": "unverified",
+        "role": "Path 2 红队对抗者 (NOT independently sampled)",
         "attack_vector": vector,
         "pitfall_identified": pitfall,
-        "vulnerability_mitigated": True,
-        "adversarial_score": 1.0
+        "vulnerability_mitigated": None,
+        "adversarial_score": None,
+        "note": "本项非独立采样结果，仅为用例清单中标注的已知陷阱回抄，不构成红队验证。",
     }
 
 def run_case_path3(case):
-    """Path 3 极简执行者：最小代码阶梯，沙箱运行 Python 代码执行断言 Pass@k"""
+    """Path 3 极简执行者：最小代码阶梯，沙箱运行 Python 代码执行断言 Pass@k
+
+    ⚠️ 诚实性说明：本函数确实**真的**起了 subprocess 跑 Python（这点是真的），
+    但断言内容是同义反复 —— 原实现只做 `assert isinstance(expected, dict)`，
+    即"断言预期值是个字典"。它**没有**验证任何计算结果，也没有把
+    ground_truth_formula 真正实现出来再比对。
+    因此 "pass_at_k: 1.0" 是**恒真**的，与任务是否算对毫无关系。
+
+    这**不是** Path 3 的独立实现——它是同一个文件的第三个分支。
+    真实 Path 3 应由隔离子代理**独立写出最小可跑实现**，再真跑、真比对。
+    """
     cid = case["id"]
     expected = case["expected_output"]
     formula = case["ground_truth_formula"]
-    
+
     # 构造独立沙箱执行脚本
     expected_json_str = json.dumps(expected)
+    # ⚠️ 原实现仅断言 expected 是 dict（恒真）。改为显式标记「未实现求解」，
+    #    使 pass 标记不再是无条件 True，避免再次虚报 Pass@k。
     sandbox_code = f"""# -*- coding: utf-8 -*-
 import json
-from decimal import Decimal, ROUND_FLOOR, ROUND_CEILING, ROUND_HALF_UP
 
 case_id = "{cid}"
 expected = json.loads({json.dumps(expected_json_str)})
+formula = {json.dumps(formula)}
 
-# 执行真实断言
-# Case ID: {cid}
-# Ground truth formula: {formula}
-# 验证期望值与计算值一致
-assert isinstance(expected, dict), "Expected must be dict"
-print(json.dumps({{"pass": True, "case_id": case_id}}))
+# ⚠️ 未实现：本沙箱并未真正实现 ground_truth_formula 去复算 expected。
+#    因此这里**不输出** pass=True —— 无求解就无断言，无可断言就无 Pass@k。
+print(json.dumps({{
+    "pass": None,
+    "case_id": case_id,
+    "reason": "not_implemented: 未实现公式复算，故不产生 Pass@k 结论",
+}}))
 """
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as tf:
         tf.write(sandbox_code)
@@ -196,11 +248,12 @@ print(json.dumps({{"pass": True, "case_id": case_id}}))
         res = subprocess.run(["python", tpath], capture_output=True, text=True, check=True, encoding="utf-8")
         out = json.loads(res.stdout.strip())
         return {
-            "status": "success",
-            "role": "Path 3 极简执行者",
-            "pass_at_k": 1.0,
+            "status": "unverified",
+            "role": "Path 3 极简执行者 (NOT independently sampled)",
+            "pass_at_k": None,
             "sandbox_executed": True,
-            "stdout": out
+            "stdout": out,
+            "note": "沙箱确实运行了，但未实现公式复算，故不构成 Pass@k 验证。",
         }
     except subprocess.CalledProcessError as e:
         return {
@@ -268,10 +321,17 @@ def main():
     
     summary = {
         "total_cases": len(cases),
-        "path1_avg_convergence_ms": round(sum(p1_convergence_times) / len(p1_convergence_times) * 1000, 3),
-        "path2_attack_hit_rate": f"{p2_attack_hits / len(cases) * 100:.1f}%",
-        "path3_pass_at_k_rate": f"{p3_pass_count / len(cases) * 100:.1f}%",
-        "consensus_rate_3_of_3": f"{consensus_count / len(cases) * 100:.1f}%",
+        # ⚠️ 以下四个字段的历史取值曾为 100.0%，但那是恒等式，不是测量值。
+        # 诚实汇总（2026-09-28）：不再输出无意义的百分比，显式标注未测量。
+        "path1_avg_convergence_ms": None,
+        "path1_avg_convergence_ms_note": "未测量：本地算术无模型延迟，不可作为收敛速度证据。",
+        "path2_attack_hit_rate": None,
+        "path2_attack_hit_rate_note": "未测量：原为 `hit = True` 恒真分支。真实红队命中率需隔离子代理实测。",
+        "path3_pass_at_k_rate": None,
+        "path3_pass_at_k_rate_note": "未测量：原断言为 `assert isinstance(expected, dict)` 恒真同义反复，未实现公式复算。",
+        "consensus_rate_3_of_3": None,
+        "consensus_rate_3_of_3_note": "未测量：三条“路径”同源于同一份代码，非独立共识。",
+        "case_inventory_count": len(cases),
         "total_execution_time_s": round(total_time, 3),
         "results": results
     }
@@ -279,11 +339,9 @@ def main():
     with open("benchmarks/benchmark-results.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
         
-    print(f"完成 30 个用例的极端边界测试！")
-    print(f"- Path 1 平均收敛耗时: {summary['path1_avg_convergence_ms']} ms")
-    print(f"- Path 2 红队攻击命中率: {summary['path2_attack_hit_rate']}")
-    print(f"- Path 3 沙箱执行 Pass@1 通过率: {summary['path3_pass_at_k_rate']}")
-    print(f"- JEV 3/3 独立共识率: {summary['consensus_rate_3_of_3']}")
+    print(f"完成 {len(cases)} 个用例的清单遍历（注意：非独立采样）。")
+    print(f"- 用例清单数: {summary['case_inventory_count']}")
+    print(f"- 三路验证指标: 全部标注为 None（未测量，详见文件头诚实性声明）。")
 
 if __name__ == "__main__":
     main()

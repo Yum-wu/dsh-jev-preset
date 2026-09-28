@@ -42,8 +42,30 @@ async function rpc(origin, cookie, endpoint, args = {}) {
   return j.result.value
 }
 
-// 目标提示词
-export const JEV_LONG_GOAL_PROMPT = `
+// 目标（一字不差入库，不经模型转述）。
+// 2026-09-28 根因修复：上一版的失败在于目标是经 session/prompt 纯文本下发，
+// 模型收到后调用 create_goal 工具自行概括 objective，把"5 小时/举证门槛"丢掉，
+// 且首轮干完即 complete（roundsStarted=0）。
+// 本版直接走 commands/execute，服务端 command-goal 插件按字面入库。
+export const JEV_LONG_GOAL_OBJECTIVE = [
+  'JEV 模式真实三路隔离实测与诚实性闭环(第 2 次)。仍未完成前严禁 complete；Round < 25 前禁止调用 update_goal(complete)。',
+  '背景:第 1 次(2026-09-28)用 Python if-elif 伪造了三路基准(已清理,见 benchmarks/run_stress_matrix.py 文件头诚实性声明)。',
+  '本次只认以下两类证据,其余一律视为未完成:',
+  '  (1) DSH 原生 subagent / workflow 真实派生的子会话 ID(形如 session-* / 纯 UUID),可在 session/list 查到且日志含 assistant 推导文本;',
+  '  (2) 本地命令真实 stdout(贴命令与输出,非"已跑"口头报告)。',
+  '阶段:',
+  '  P0 修复 workflow-ptc 表达式核查(见下面修复单)。',
+  '  P1 从 benchmarks/matrix-cases.json 选 3~5 个用例,经真实三路隔离采样跑通,附子会话 ID 与文本证据;凡失败即补派,记录失败原因。',
+  '  P2 核对 docs/ 与 README 里"未测量"标注是否仍属实;经实测的数据才允许写回指标。',
+  '  P3 CI/文档收尾,跑全量 npm test 与 smoke.mjs。',
+  '收尾规则:每轮只做一小步,做完即结束本轮保留目标 active;未满 25 轮或任一阶段无证据,禁止 complete。',
+].join(' ')
+
+// ⚠️ 旧模板（2026-09-28 已弃用，作为失败教训留底）:
+// 上一版把下面这段长文本经 session/prompt 发给模型，模型收到后自行调用
+// create_goal 工具，把 objective 压缩改写、丢掉时长与举证约束，首轮干完即 complete
+//（roundsStarted=0）。不要再用此方式启动长程目标，改走 commands/execute。
+const JEV_LONG_GOAL_PROMPT_DEPRECATED = `
 /goal 目标：深度调研与全方位优化 JEV 模式 (dsh-jev-preset)，执行高强度长程演化压测，持续运行至少 5 小时（目标完成前严禁提前结束），产出工业级完整成果并完成 GitHub 独立开源仓库发布。
 
 【核心工作阶段规划（严禁跳过任何阶段，按步骤深度推进）】
@@ -78,7 +100,7 @@ export const JEV_LONG_GOAL_PROMPT = `
    - 编写 GitHub Actions CI 工作流配置 (.github/workflows/ci.yml)。
 2. 进行全量静态与端到端测试，确保测试用例 100% 绿灯。
 
-### 阶段五：GitHub 建立独立公共仓库并推送
+### 阶段五：GitHub 建立独立公共仓库并推送（本轮暂时跳过，由人确认后再做）
 1. 在用户 GitHub 账号 (Yum-wu) 下创建 Public 仓库：dsh-jev-preset；
 2. 初始化本地 git 仓库，规范化 commit message；
 3. 配置 remote 并安全完成初始主分支推送；
@@ -89,6 +111,8 @@ export const JEV_LONG_GOAL_PROMPT = `
 - 步步留痕，每次测试和重大发现实时更新日志与文档。
 - 持续高负荷演化，不到 5 小时且未完全闭环前不停止！
 `.trim()
+
+// ⚠️ 旧模板（2026-09-28 已弃用，作为失败教训留底，已移入 docs/legacy-goal-prompt.md）。
 
 async function main() {
   const { origin, token } = readBase()
@@ -114,27 +138,22 @@ async function main() {
     preset: created.agentPreset,
     startedAt: new Date().toISOString(),
     minDurationHours: 5,
-    prompt: JEV_LONG_GOAL_PROMPT
+    prompt: JEV_LONG_GOAL_OBJECTIVE,
   }, null, 2))
 
-  console.log(`[3] 正在向会话下发 5 小时长程目标指令...`)
-  const accepted = await rpc(origin, cookie, 'session/prompt', {
-    request: {
-      sessionId,
-      requestId: crypto.randomUUID(),
-      mode: 'queue',
-      content: [{ type: 'text', text: JEV_LONG_GOAL_PROMPT }],
-    },
+  console.log(`[3] 经 commands/execute 下发 /goal(服务端直解析,不经模型转述)...`)
+  const goalResult = await rpc(origin, cookie, 'commands/execute', {
+    agentId: sessionId,
+    line: `/goal ${JEV_LONG_GOAL_OBJECTIVE}`,
+    submittedAttachments: [],
   })
+  console.log(`  /goal 返回: ${JSON.stringify(goalResult).slice(0, 200)}`)
 
-  if (accepted?.accepted) {
-    console.log(`[4] 目标指令受理成功！JEV 会话已进入目标模式运行状态。`)
-    console.log(`    会话 ID: ${sessionId}`)
-    console.log(`    状态档案: ${statePath}`)
-    console.log(`    Web 访问: ${origin}/?token=${token}#session=${sessionId}`)
-  } else {
-    throw new Error('会话指令未被受理: ' + JSON.stringify(accepted))
-  }
+  console.log(`[4] 目标已入库！JEV 会话将由目标驱动器自动续跑。`)
+  console.log(`    会话 ID: ${sessionId}`)
+  console.log(`    状态档案: ${statePath}`)
+  console.log(`    Web 访问: ${origin}/?token=${token}#session=${sessionId}`)
+  console.log(`    监控命令: node tools/monitor-long-goal.mjs`)
 }
 
 main().catch(err => {

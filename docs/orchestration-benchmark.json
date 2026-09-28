@@ -1,14 +1,14 @@
 {
-  "timestamp": "2026-09-27T21:04:46.791Z",
+  "timestamp": "2026-09-28T06:47:57.687Z",
   "metrics": {
     "modeA": {
-      "avg_latency_ms": 15.435860999999997,
-      "p99_latency_ms": 16.57090000000005,
+      "avg_latency_ms": 15.498470000000003,
+      "p99_latency_ms": 16.4058,
       "success_rate": 100
     },
     "modeB": {
-      "avg_latency_ms": 15.532942000000014,
-      "p99_latency_ms": 16.465199999999868,
+      "avg_latency_ms": 15.509037000000005,
+      "p99_latency_ms": 16.46080000000029,
       "success_rate": 100
     },
     "circuit_breaker": {

@@ -1,0 +1,16 @@
+
+=== [第一层: DSH 0.1.7 引擎级 depthLimit 语义断言] ===
+  PASS  depth=0 派生 depth=1: 允许通过 (childDepth = 1 <= maxDepth 1)
+  PASS  depth=1 尝试派生 depth=2: 被引擎精准拦截 -> subagent depth 2 exceeds maxDepth 1
+
+=== [第二层: JEV 真实端到端会话靶向测试] ===
+  PASS  已创建 JEV 测试会话: session-484d7dbc-c8d6-495d-829b-015c911608d4
+  PASS  已受理诱导递归派生的任务 prompt
+  等待主会话与子代理运行结算（最长 180s）...
+  PASS  测试会话 turn 已成功结束
+  主会话 (session-484d7dbc-c8d6-495d-829b-015c911608d4) 派生的子会话数: 1
+  PASS  会话树结构证实: 孙会话数量为 0，递归派生被彻底阻断！
+  PASS  运行实证捕获: 拦截原因确凿为 [SubagentDepthError 拦截报告]
+
+==========================================================
+JEV maxDepth: 1 递归阻断验证全绿！

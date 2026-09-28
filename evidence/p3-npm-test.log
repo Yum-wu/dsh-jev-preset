@@ -1,0 +1,22 @@
+
+> dsh-jev-preset@1.1.0 test
+> node --test tests/test-*.mjs && python tests/test_assertions.py
+
+✔ 断路器状态机流转与熔断阻断 (67.8799ms)
+✔ DSH 子代理递归阻断与深度限制 (maxDepth=1) (111.7877ms)
+✔ Isolate 私有隔离域审计 (8.1597ms)
+✔ Loader 合成与 Schemastery 配置契约 (5.6134ms)
+✔ YAML Schema 语法有效性与顶层结构 (6.026ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 224.7886
+.....
+----------------------------------------------------------------------
+Ran 5 tests in 0.017s
+
+OK

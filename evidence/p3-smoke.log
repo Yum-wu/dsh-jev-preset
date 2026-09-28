@@ -1,0 +1,26 @@
+
+JEV 预设冒烟测试
+服务: http://127.0.0.1:3080
+鉴权: 签名 cookie 已获取
+
+[1] roster 中出现 jev
+  PASS  id=jev 在册
+  PASS  显示名 = JEV 自适应交叉验证
+  PASS  description 非空
+  PASS  order = 5
+
+[2] 激活无诊断错误(broken 字段必须不存在)
+  PASS  broken 字段不存在 — 全部行激活成功
+
+[3] 声明文档可读(read 端点)
+  PASS  content 可读(7157 字符)
+  PASS  声明含 28 个顶层插件行
+  PASS  声明含 dsh-persona(三路隔离能力)
+  PASS  声明含 dsh-tool-subagent(三路隔离能力)
+
+[4] 可无缝切换(切换后 isDefault 变化,再恢复)
+  PASS  已切换到 jev
+  PASS  已恢复原默认预设 standard
+
+==========================================================
+冒烟测试全部通过 — JEV 预设已在 Web「设置 → Agent 预设」中展示且可无缝切换

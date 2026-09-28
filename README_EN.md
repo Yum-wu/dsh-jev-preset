@@ -28,15 +28,17 @@ In quantitative trading, risk management calculations, and critical system refac
 
 Tested across 5 critical risk categories (Tick Quantization, Tiered Liquidation, Slippage Penetration, Timezone/DST Alignment, and Adjustment Factor Zero-Division):
 
-| Metric | Result | Target Benchmark | Status |
-| :--- | :--- | :--- | :--- |
-| **Total Test Cases** | 30 Cases | ≥ 30 | Passed (100%) |
-| **Path 1 Avg Convergence Latency** | **0.033 ms** | < 100 ms | Ultra-fast |
-| **Path 2 Red-Team Attack Hit Rate** | **100.0%** (30/30) | ≥ 90.0% | Excellent |
-| **Path 3 Sandbox Execution Pass@1** | **100.0%** (30/30) | ≥ 95.0% | Veto Applied |
-| **JEV 3/3 Independent Consensus** | **100.0%** (30/30) | ≥ 90.0% | Full Convergence |
+> ⚠️ Honesty notice (2026-09-28): an earlier version of this table claimed four
+> rows of `100.0%`. Those were identities produced by local if-elif hard-coded
+> branches (`hit = True` tautology, `assert isinstance(expected, dict)` tautology),
+> **not** measured JEV three-way isolated sampling. The figures have been withdrawn;
+> see [`docs/benchmark-report.md`](./docs/benchmark-report.md) for the full disclosure.
 
-See [docs/benchmark-report.md](./docs/benchmark-report.md) for detailed analysis.
+30 cases (5 risk domains) currently exist only as a **case parameter inventory**; three-way
+sampling has not yet been genuinely executed. The four sampling metrics currently
+return `None` (unmeasured) in `benchmarks/benchmark-results.json`. Genuinely verified
+evidence consists of: static contract checks (`validate.mjs`, `tests/test-*.mjs`, all green)
+and one fully archived real 4-subagent isolated run (`notes/jev-three-path-run-2026-09-28.md`).
 
 ---
 
