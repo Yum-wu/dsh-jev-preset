@@ -199,8 +199,12 @@ def trap_crt_widgets(rng, i):
     tm = rng.choice([20, 50, 100, 200])
     tw = rng.choice([tm, tm * 2, tm * 5])
     ans = {"minutes": solve.crt_widgets(m, 5, w, tm, tw)}
+    # ⚠️ 必须在题面明确规定精度:参考解按公式可给出 4 位小数(如 8.3333),
+    # 而模型常保留 2 位(8.33)。若题面不定精度,会把**正确但精度不同**的答案
+    # 判成错 —— 这是实测发现的误判(2026-09-28)。
     q = (f"{m} 台机器 {5} 分钟可以生产 {w} 个零件。那么 {tm} 台机器生产 {tw} 个零件需要多少分钟?"
-         + _proto('{"minutes": "<分钟数>"}'))
+         f"结果保留 4 位小数。"
+         + _proto('{"minutes": "<分钟数,保留 4 位小数>"}'))
     return q, ans
 
 

@@ -401,6 +401,33 @@ class TestCognitiveTraps(unittest.TestCase):
             sc = [int(x) for x in m.group(4, 5, 6)]
             self.assertGreater(solve.blind_candy_min(rc, sc, 0, 1), exp, c["id"])
 
+    def test_nonterminating_answer_needs_explicit_precision(self):
+        """若参考解不是有限小数,题面**必须**规定精度。
+
+        实测 bug(2026-09-28):`trap_widgets` 原题面只写"<分钟数>",未规定精度,
+        参考解给 8.3333 而模型答 8.33(同样正确),被判错 —— 3 道题误判。
+        判据:参考解小数位 > 4 时,题面必须出现"保留 N 位小数"。
+        """
+        for c in build_suite(20260928):
+            for key, want in c["expected"].items():
+                if not isinstance(want, str):
+                    continue
+                try:
+                    d = D(want)
+                except Exception:
+                    continue
+                frac = -d.as_tuple().exponent
+                if frac > 4:                      # 非有限/长小数,必须声明精度
+                    self.assertRegex(c["question"], r"保留\s*\d+\s*位小数",
+                                     f"{c['id']} 的 {key}={want} 需在题面规定精度")
+
+    def test_widgets_prompt_states_precision(self):
+        """机器题专项守护:题面必须写明保留 4 位小数。"""
+        for c in build_suite(3):
+            if c["category"] != "trap_widgets":
+                continue
+            self.assertIn("保留 4 位小数", c["question"], c["id"])
+
     def test_merge_multi_seed_unique_ids(self):
         """merge 子命令:多 seed 合并后 id 必须全局唯一,且总数 = seed 数 × 单套题数。"""
         with tempfile.TemporaryDirectory() as d:
