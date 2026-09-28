@@ -125,10 +125,31 @@ npm run validate
 
 ## 🛡️ 核心安全与工程防线
 
+> ⚠️ **更正声明（2026-09-28）**：本节历史版本列了四条"防线"，其中第 3、4 条
+> **不成立** —— `JevCircuitBreaker` 与 `JevRoleRegistry` 两个类**只存在于 `tests/`
+> 目录**（`test-circuit-breaker.mjs`、`orchestration-benchmark.mjs`），
+> **从未被 `cordis.patch.yml` 或任何运行时路径引用**（已核查：全仓 0 处 import）。
+> 它们是**未被接入的死代码桩**，不是"运行时防线"。此类"把测试桩说成已部署防线"
+> 的错误与历史上的伪造基准同属**验证剧场 (Verification Theater)**，已按
+> [最佳实践指南](https://www.ewok.me/blog/posts/2026-02-28-building-reliable-multi-agent-llm-systems-a-best-practice-guide.html)
+> 的告诫予以更正。
+
+**真实存在且已核实的防线（2 条）**：
+
 1. **递归阻断 (maxDepth: 1)**: 子代理继承预设但被引擎硬性限制最大深度为 1，杜绝无限裂变与孙代理生成。
+   已端到端实证：`tools/verify-depth-limit.mjs` 全绿，孙会话数量为 0。
 2. **服务私有隔离域 (isolate)**: `compaction` 与 `delegation` 严格限定于独立 realm，杜绝服务泄漏至 root realm。
-3. **断路器与自适应退避**: 对 503 异常、模型超时建立三态断路器 (Closed -> Open -> Half-Open)，配合指数退避安全补派。
-4. **角色互斥锁**: 运行时登记 `['Path 1 严谨推导者', 'Path 2 红队对抗者', 'Path 3 极简执行者']`，彻底消除同角色重复派发缺陷。
+   已由 `validate.mjs` 静态核查通过。
+
+**降级为"设计参考"（非运行时防线）**：
+
+3. ~~断路器与自适应退避~~ → 仅为 `tests/test-circuit-breaker.mjs` 中的**状态机参考实现**。
+   运行时实际的失败恢复由宿主 `@deepseek-ai/dsh-llm-retry` 提供
+   （normal mode：`RATE_LIMIT`/`SERVER`/`TIMEOUT`/`TRANSPORT`/`EMPTY_RESPONSE` 最多重试 6 次）。
+   JEV 自身**没有**独立断路器。
+4. ~~角色互斥锁~~ → 仅为 `tests/orchestration-benchmark.mjs` 中的**设计参考**。
+   运行时角色唯一性**靠 persona 纪律**（派发前自行核对 Path1/2/3 不重复），
+   **无程序化强制**。这是已知弱点：模型仍可能派出两个 Path 3。
 
 ---
 
