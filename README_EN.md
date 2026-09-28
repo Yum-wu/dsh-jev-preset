@@ -40,6 +40,13 @@ return `None` (unmeasured) in `benchmarks/benchmark-results.json`. Genuinely ver
 evidence consists of: static contract checks (`validate.mjs`, `tests/test-*.mjs`, all green)
 and one fully archived real 4-subagent isolated run (`notes/jev-three-path-run-2026-09-28.md`).
 
+> 📖 Field contract (`benchmarks/benchmark-results.json`, since 2026-09-28):
+> `path1_avg_convergence_ms` / `path2_attack_hit_rate` / `path3_pass_at_k_rate` /
+> `consensus_rate_3_of_3` are always `null`, each with a `*_note` explaining why;
+> the only machine-consumable fields are `case_inventory_count` (=30) and the
+> `results[]` case inventory. Historical versions emitted `100.0%` — identities,
+> not measurements; downstream consumers **must not** parse old versions as numbers.
+
 ---
 
 ## 🧰 Built-in Quantitative & Risk Assertion Suite

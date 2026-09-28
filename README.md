@@ -68,6 +68,12 @@ graph TD
 目前仅为**用例参数清单**，三路采样尚未真实执行。`benchmarks/run_stress_matrix.py`
 的四个统计指标现全部返回 `None`（未测量），不再编造数字。
 
+> 📖 字段口径（`benchmarks/benchmark-results.json`，2026-09-28 起）：
+> `path1_avg_convergence_ms` / `path2_attack_hit_rate` / `path3_pass_at_k_rate` /
+> `consensus_rate_3_of_3` 四字段恒为 `null`，各配 `*_note` 说明未测量原因；
+> 唯一可消费的机器字段是 `case_inventory_count`（=30）与 `results[]` 用例清单。
+> 旧版曾输出 `100.0%`，那是恒等式不是测量值，下游**不得**按数字解析历史版本。
+
 ---
 
 ## 🧰 内建量化数学与风控标准断言函数库

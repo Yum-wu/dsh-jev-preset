@@ -30,6 +30,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Guard Tracked Package Files Present
+        run: |
+          python -c "import pathlib,sys; req=['packages/assertions/python/jev_assertions/__init__.py','packages/assertions/python/jev_assertions/tick.py','packages/assertions/python/jev_assertions/margin.py','packages/assertions/python/jev_assertions/slippage.py','packages/assertions/python/jev_assertions/calendar.py','packages/assertions/python/jev_assertions/split.py','packages/assertions/python/jev_assertions/cli.py','tests/test_assertions.py','benchmarks/run_stress_matrix.py']; miss=[p for p in req if not pathlib.Path(p).is_file()]; print('missing:',miss); sys.exit(1 if miss else 0)"
+
       - name: Run Python Assertion Regression Guard
         run: |
           python tests/test_assertions.py
