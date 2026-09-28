@@ -9,6 +9,7 @@
 import json
 import os
 import random
+import re
 import sys
 import tempfile
 import unittest
@@ -44,7 +45,7 @@ from jevbench import solve  # noqa: E402
 from jevbench.__main__ import cmd_selftest, main as cli_main  # noqa: E402
 from jevbench.cases import DEFAULT_COUNTS, build_suite  # noqa: E402
 from jevbench.extract import extract_answer, extract_route, is_three_path  # noqa: E402
-from jevbench.grading import compare, difficulty_filter, grade_case, grade_runs, summarize  # noqa: E402
+from jevbench.grading import compare, difficulty_filter, grade_case, grade_runs, reference_text, summarize  # noqa: E402
 from jevbench.stats import mcnemar_exact, wilson  # noqa: E402
 from jev_assertions import assert_ex_right_price, assert_orderbook_vwap, assert_tick_floor  # noqa: E402
 
@@ -261,6 +262,144 @@ class TestSuite(unittest.TestCase):
         three = sum(1 for c in g if c["expected"]["expect_three_path"])
         self.assertGreater(three, 0)
         self.assertGreater(len(g) - three, 0)
+
+
+class TestCognitiveTraps(unittest.TestCase):
+    """认知陷阱题(CRT 等):答案唯一,但直觉答案诱人且错误。
+
+    这类题是"单路 vs 多路"的主要区分来源 —— 常规数值题已实测被单路做满
+    (C0 97.5%),而陷阱题会诱导系统 1 给出自信的错误答案。
+    """
+
+    def setUp(self):
+        self.rng = random.Random(20260928)
+
+    def test_crt_reference_values(self):
+        """CRT 原始三题的手算值(文献:5 分 / 5 分钟 / 47 天)。"""
+        self.assertEqual(solve.crt_ball(110, 100), "5")       # 直觉错答 10
+        self.assertEqual(solve.crt_widgets(5, 5, 5, 100, 100), "5")  # 直觉错答 100
+        self.assertEqual(solve.crt_lily(48), "47")            # 直觉错答 24
+
+    def test_crt_ball_identity(self):
+        """性质检验:球价 + 球拍价 = 总价,且球拍价比球价正好贵 diff。"""
+        for _ in range(200):
+            diff = self.rng.choice([100, 90, 80, 60, 50, 40, 120])
+            total = diff + self.rng.choice([10, 20, 30, 40, 60, 80])
+            ball = D(solve.crt_ball(total, diff))
+            bat = ball + D(diff)
+            self.assertEqual(ball + bat, D(total))
+            self.assertEqual(bat - ball, D(diff))
+
+    def test_widgets_proportionality(self):
+        """机器题:产量与机器数成正比、与时间成正比(用两种口径交叉验算)。"""
+        for _ in range(200):
+            m = self.rng.choice([5, 3, 4, 6, 10])
+            w = self.rng.choice([m, m * 2, m * 3])
+            tm = self.rng.choice([20, 50, 100, 200])
+            tw = self.rng.choice([tm, tm * 2, tm * 5])
+            got = D(solve.crt_widgets(m, 5, w, tm, tw))
+            # 单位产能:每台每分钟产量
+            rate = D(w) / (D(m) * 5)
+            self.assertAlmostEqual(float(got), float(D(tw) / (rate * D(tm))), places=4)
+
+    def test_lily_is_one_less(self):
+        for d in (24, 30, 36, 48, 60, 72, 100):
+            self.assertEqual(solve.crt_lily(d), str(d - 1))
+
+    def test_decimal_compare_not_string_compare(self):
+        """核心陷阱:模型常按"版本号/逐位"思维比较,得出 9.11 > 9.9(错)。
+
+        注意:Python 的字符串比较**恰好**给出正确答案("9.11" < "9.9",
+        因为 '1' < '9'),所以本陷阱不是字符串序造成的,而是
+        "小数部分逐位比较"的直觉(0.11 vs 0.9 → 误以为 11 > 9)。
+        """
+        self.assertEqual(solve.decimal_max("9.11", "9.9"), "9.9")
+        self.assertLess("9.11", "9.9")               # 字符串序恰好也是对的,故陷阱另有来源
+        self.assertGreater(11, 9)                    # 直觉误用:小数位当整数比 → 错
+        self.assertEqual(solve.decimal_max("1.10", "1.9"), "1.9")
+        self.assertEqual(solve.decimal_max("10.11", "10.9"), "10.9")
+
+    def test_letter_count_matches_manual(self):
+        self.assertEqual(solve.count_letter("strawberry", "r"), "3")
+        self.assertEqual(solve.count_letter("blueberry", "b"), "2")
+        self.assertEqual(solve.count_letter("raspberry", "r"), "3")
+
+    def test_mushroom_dry_matter_conserved(self):
+        """性质检验:干物质在晾晒前后守恒(这是本题唯一正确的解法依据)。"""
+        for _ in range(100):
+            kg = D(self.rng.choice(["1000", "100", "500", "200"]))
+            pi, pf = self.rng.choice([("0.99", "0.98"), ("0.98", "0.96"), ("0.95", "0.90")])
+            lost = D(solve.mushroom_water_lost(str(kg), pi, pf))
+            dry_before = kg * (1 - D(pi))
+            dry_after = (kg - lost) * (1 - D(pf))
+            self.assertLessEqual(abs(dry_before - dry_after), D("0.01"))
+        self.assertEqual(solve.mushroom_water_lost("1000", "0.99", "0.98"), "500.00")
+
+    def test_candy_bruteforce_crosscheck(self):
+        """糖果题:与独立暴力实现交叉验证(枚举配比 + 枚举对手安排)。"""
+        def brute(rc, sc, ia, ip):
+            tc, ts = sum(rc), sum(sc)
+            for n in range(0, tc + ts + 1):
+                for x in range(max(0, n - ts), min(n, tc) + 1):
+                    y = n - x
+                    safe = True
+                    for ac in range(0, min(x, rc[ia]) + 1):
+                        for pc in range(0, min(x - ac, rc[ip]) + 1):
+                            if x - ac - pc > rc[2]:
+                                continue
+                            for a_s in range(0, min(y, sc[ia]) + 1):
+                                for ps in range(0, min(y - a_s, sc[ip]) + 1):
+                                    if y - a_s - ps > sc[2]:
+                                        continue
+                                    if not ((ac >= 1 and ps >= 1) or (a_s >= 1 and pc >= 1)):
+                                        safe = False
+                                        break
+                                if not safe:
+                                    break
+                            if not safe:
+                                break
+                        if not safe:
+                            break
+                    if safe:
+                        return n
+            return None
+
+        for rc, sc in [([7, 9, 8], [7, 6, 4]), ([5, 4, 3], [4, 3, 2]), ([4, 4, 4], [4, 4, 4])]:
+            self.assertEqual(solve.candy_min(rc, sc, 0, 1), brute(rc, sc, 0, 1), f"{rc} {sc}")
+        # 文献原题答案 21
+        self.assertEqual(solve.candy_min([7, 9, 8], [7, 6, 4], 0, 1), 21)
+
+    def test_candy_trap_is_effective(self):
+        """陷阱必须有效:忽略"形状可手感分辨"会得到**严格更大**的错答。
+
+        若某组参数下两者相等,该题不构成审题陷阱,不应入题集。
+        """
+        for _ in range(50):
+            rc = [self.rng.randint(3, 9) for _ in range(3)]
+            sc = [self.rng.randint(2, 8) for _ in range(3)]
+            self.assertGreater(solve.blind_candy_min(rc, sc, 0, 1), solve.candy_min(rc, sc, 0, 1),
+                               f"陷阱无效: rc={rc} sc={sc}")
+        self.assertEqual(solve.blind_candy_min([7, 9, 8], [7, 6, 4], 0, 1), 29)  # 文献常见错答
+
+    def test_trap_cases_are_generated_and_gradable(self):
+        """陷阱题必须真的进入题集,且参考答案能被判分器判对、扰动判错。"""
+        suite = build_suite(20260928)
+        traps = [c for c in suite if c["kind"] == "trap"]
+        self.assertGreaterEqual(len(traps), 15, "陷阱题数量过少,不足以提供区分力")
+        for c in traps:
+            self.assertTrue(grade_case(c, reference_text(c))["correct"], c["id"])
+
+    def test_trap_candy_uses_correct_params(self):
+        """糖果题若参数导致陷阱失效,必须回退到文献原题参数(而非静默产出无效题)。"""
+        for c in build_suite(7):
+            if c["category"] != "trap_candy":
+                continue
+            exp = int(c["expected"]["min_candies"])
+            m = re.search(r"圆形:(\d+) (\d+) (\d+)\n五角星形:(\d+) (\d+) (\d+)", c["question"])
+            self.assertIsNotNone(m, c["id"])
+            rc = [int(x) for x in m.group(1, 2, 3)]
+            sc = [int(x) for x in m.group(4, 5, 6)]
+            self.assertGreater(solve.blind_candy_min(rc, sc, 0, 1), exp, c["id"])
 
     def test_merge_multi_seed_unique_ids(self):
         """merge 子命令:多 seed 合并后 id 必须全局唯一,且总数 = seed 数 × 单套题数。"""

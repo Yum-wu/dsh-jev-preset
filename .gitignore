@@ -20,3 +20,10 @@ __*/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# 准确率基准的跑批产物(不入库)
+# - suite*.jsonl  可由 `python -m jevbench merge --seeds ...` 确定性重建
+# - runs*.jsonl   含完整模型回复与 session_id,属本地证据,体积随跑批增长
+# 关键结论与数字已摘录进 benchmarks/accuracy/DIFFICULTY-CALIBRATION.md
+benchmarks/accuracy/*.jsonl
+benchmarks/accuracy/report*.json

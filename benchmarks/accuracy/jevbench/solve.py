@@ -117,3 +117,88 @@ def max_drawdown(equity: list) -> dict:
             best, best_peak, best_trough = dd, peak_i, i
     return {"mdd_pct": str((best * 100).quantize(D("0.01"), rounding=ROUND_HALF_UP)),
             "peak_index": best_peak, "trough_index": best_trough}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 认知陷阱题 (trap):答案唯一且可程序判分,但**直觉答案诱人且错误**。
+# 设计依据:认知反射测验 (CRT, Frederick 2005) 与业界广泛复现的"降智检测"题。
+# 这类题对"单路 vs 多路"的区分力远高于常规数值题 —— 因为系统 1 会给出
+# 一个自信的错误答案,而三路独立采样有机会在交叉比对时发现分歧。
+# ══════════════════════════════════════════════════════════════════════════
+
+def crt_ball(total_cents: int, diff_cents: int) -> str:
+    """CRT 球拍题:合计 total 分,球拍比球贵 diff 分,求球价(分)。
+    正确 = (total - diff)/2;直觉错误 = diff(把"贵 diff"当成球价)。"""
+    n = D(total_cents) - D(diff_cents)
+    if n % 2 != 0:
+        raise ValueError("无整数解")
+    return str(int(n / 2))
+
+
+def crt_widgets(machines: int, minutes: int, widgets: int, t_m: int, t_w: int) -> str:
+    """CRT 机器题:m 台 m 分钟造 w 个;求 t_m 台造 t_w 个需几分钟。
+    正确 = minutes × (t_w/w) × (m/t_m);直觉错误 = minutes × (t_w/w)(忽略机器数)。"""
+    t = D(minutes) * (D(t_w) / D(widgets)) * (D(machines) / D(t_m))
+    return str(t.quantize(D("0.0001")).normalize())
+
+
+def crt_lily(total_days: int) -> str:
+    """CRT 睡莲题:第 total_days 天铺满,问铺满一半是第几天。正确 = total_days - 1。"""
+    return str(total_days - 1)
+
+
+def decimal_max(a: str, b: str) -> str:
+    """小数比较:返回较大者。专门捕捉"按字符串/版本号比较"的直觉错误
+    (如 9.11 vs 9.9 → 直觉错答 9.11,正确 9.9)。"""
+    return a if D(a) > D(b) else b
+
+
+def count_letter(word: str, letter: str) -> str:
+    """字母计数:捕捉 tokenizer 把词切成多 token 导致数错(如 strawberry 的 r)。"""
+    return str(word.lower().count(letter.lower()))
+
+
+def mushroom_water_lost(initial_kg: str, pct_initial: str, pct_final: str) -> str:
+    """蘑菇含水率题:干物质守恒。正确 = 初始重 - 干物质/(1-最终含水率)。
+    经典:1000kg 99%→98% 失水 500kg(直觉错答 10 或 20)。"""
+    dry = D(initial_kg) * (1 - D(pct_initial))
+    final_total = dry / (1 - D(pct_final))
+    lost = D(initial_kg) - final_total
+    return str(lost.quantize(D("0.01"), rounding=ROUND_HALF_UP))
+
+
+def candy_min(round_counts: list, star_counts: list, i_a: int, i_p: int) -> int:
+    """糖果题(最坏情况保证):三种口味、两种形状;形状靠手感可分辨 ⇒ 可自选圆/星配比。
+    目标 = (圆A≥1 ∧ 星P≥1) ∨ (星A≥1 ∧ 圆P≥1)。
+    返回最少取出数 n。**忽略"可分辨"提示会得到明显更大的错答**(见 blind_candy_min)。
+    """
+    tc, ts = sum(round_counts), sum(star_counts)
+    Ac, Pc = round_counts[i_a], round_counts[i_p]
+    As, Ps = star_counts[i_a], star_counts[i_p]
+
+    def avoidable(x, y):
+        """取 x 圆 + y 星时,对手能否构造出不含目标的组合。
+        ¬目标 = (Ac=0∨Ps=0) ∧ (As=0∨Pc=0),展开为四种情形之一:"""
+        return ((x <= tc - Ac and y <= ts - As)          # 无苹果
+                or (x <= tc - Ac - Pc and y <= ts)       # 圆无苹果且圆无桃子(圆全西瓜)
+                or (x <= tc and y <= ts - As - Ps)       # 星无苹果且星无桃子(星全西瓜)
+                or (x <= tc - Pc and y <= ts - Ps))      # 无桃子
+
+    for n in range(0, tc + ts + 1):
+        for x in range(max(0, n - ts), min(n, tc) + 1):
+            if not avoidable(x, n - x):
+                return n
+    return tc + ts
+
+
+def blind_candy_min(round_counts: list, star_counts: list, i_a: int, i_p: int) -> int:
+    """同一道题但**不利用"形状可分辨"**(盲目抓取,配比也由对手决定)的答案。
+    用于测试:必须严格大于 candy_min,否则该题不构成"审题陷阱"。"""
+    tc, ts = sum(round_counts), sum(star_counts)
+    Ac, Pc = round_counts[i_a], round_counts[i_p]
+    As, Ps = star_counts[i_a], star_counts[i_p]
+    worst = max((tc - Ac) + (ts - As),
+                (tc - Ac - Pc) + ts,
+                tc + (ts - As - Ps),
+                (tc - Pc) + (ts - Ps))
+    return worst + 1

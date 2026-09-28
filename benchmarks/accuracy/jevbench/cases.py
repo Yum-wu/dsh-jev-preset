@@ -175,6 +175,95 @@ def adv_missing_info(rng, i):
     return q, ans
 
 
+# ── trap:认知陷阱题(答案唯一可判分,但直觉答案诱人且错误)──────────────────
+# 依据:认知反射测验 CRT(Frederick 2005)与业界"降智检测"题。
+# 关键性质:**盲目/直觉路径会给出一个自信的错误答案**,而正确答案需要
+# 抑制第一反应(system 1 → system 2)。这类题对"单路 vs 多路"的区分力
+# 远高于常规数值题 —— 三路独立采样有机会在交叉比对时暴露分歧。
+# 每道题在 prompt 中**不提示是陷阱题**,否则会人为激活审慎模式。
+_TRAP_WORDS = ["strawberry", "raspberry", "blueberry", "cranberry", "gooseberry", "elderberry"]
+
+
+def trap_crt_ball(rng, i):
+    diff = rng.choice([100, 90, 80, 60, 50, 40, 120])
+    total = diff + rng.choice([10, 20, 30, 40, 60, 80])
+    ans = {"ball_cents": solve.crt_ball(total, diff)}
+    q = (f"一副球拍和一个球一共 {total} 分钱,球拍比球贵 {diff} 分钱。球多少钱?(单位:分)"
+         + _proto('{"ball_cents": "<球价,单位分,整数>"}'))
+    return q, ans
+
+
+def trap_crt_widgets(rng, i):
+    m = rng.choice([5, 3, 4, 6, 10])
+    w = rng.choice([m, m * 2, m * 3])
+    tm = rng.choice([20, 50, 100, 200])
+    tw = rng.choice([tm, tm * 2, tm * 5])
+    ans = {"minutes": solve.crt_widgets(m, 5, w, tm, tw)}
+    q = (f"{m} 台机器 {5} 分钟可以生产 {w} 个零件。那么 {tm} 台机器生产 {tw} 个零件需要多少分钟?"
+         + _proto('{"minutes": "<分钟数>"}'))
+    return q, ans
+
+
+def trap_crt_lily(rng, i):
+    d = rng.choice([48, 30, 60, 24, 36, 72, 100])
+    ans = {"days": solve.crt_lily(d)}
+    q = (f"湖里有一片睡莲,面积每天翻一倍。如果 {d} 天可以铺满整个湖面,"
+         f"那么铺满半个湖面需要多少天?"
+         + _proto('{"days": "<天数,整数>"}'))
+    return q, ans
+
+
+def trap_decimal_compare(rng, i):
+    a, b = rng.choice([("9.11", "9.9"), ("1.10", "1.9"), ("3.15", "3.9"),
+                       ("2.05", "2.5"), ("10.11", "10.9")])
+    ans = {"larger": solve.decimal_max(a, b)}
+    q = (f"从数学上比较 {a} 和 {b} 哪个更大?给出较大的那个数。"
+         + _proto('{"larger": "<较大的数,原样书写>"}'))
+    return q, ans
+
+
+def trap_count_letter(rng, i):
+    w = rng.choice(_TRAP_WORDS)
+    letter = rng.choice(["r", "b", "e"])
+    ans = {"count": solve.count_letter(w, letter)}
+    q = (f"单词 \"{w}\" 里字母 \"{letter}\" 出现了多少次?给出次数。"
+         + _proto('{"count": "<次数,整数>"}'))
+    return q, ans
+
+
+def trap_mushroom(rng, i):
+    kg = rng.choice(["1000", "100", "500", "200"])
+    pi, pf = rng.choice([("0.99", "0.98"), ("0.98", "0.96"), ("0.95", "0.90")])
+    ans = {"water_lost_kg": solve.mushroom_water_lost(kg, pi, pf)}
+    q = (f"最初有 {kg} 千克蘑菇,其中 {float(pi)*100:.0f}% 是水。经过几天晾晒后,"
+         f"水分含量降为 {float(pf)*100:.0f}%。问:蘑菇失去了多少千克水?"
+         + _proto('{"water_lost_kg": "<失去的水重(千克),保留两位小数>"}'))
+    return q, ans
+
+
+def trap_candy(rng, i):
+    """糖果题:关键提示"形状靠手感可以分辨"藏在括号里,易被忽略。
+    忽略它会得到明显更大的错答(文献实测模型常答 29,正确 21)。"""
+    rc = [rng.randint(3, 9) for _ in range(3)]
+    sc = [rng.randint(2, 8) for _ in range(3)]
+    ia, ip = 0, 1                                  # 苹果、桃子
+    ans = {"min_candies": solve.candy_min(rc, sc, ia, ip)}
+    blind = solve.blind_candy_min(rc, sc, ia, ip)
+    if blind <= ans["min_candies"]:                # 陷阱无效则不采用这组参数
+        rc, sc = [7, 9, 8], [7, 6, 4]
+        ans = {"min_candies": solve.candy_min(rc, sc, ia, ip)}
+    q = (f"在一个黑色的袋子里放有三种口味的糖果,每种糖果有两种不同的形状"
+         f"(圆形和五角星形,不同的形状靠手感可以分辨)。现已知不同口味的糖和"
+         f"不同形状的数量统计如下表。参赛者需要在活动前决定摸出的糖果数目,"
+         f"那么,最少取出多少个糖果才能保证手中同时拥有不同形状的苹果味和桃子味的糖?"
+         f"(同时手中有圆形苹果味匹配五角星桃子味糖果,或者有圆形桃子味匹配"
+         f"五角星苹果味糖果都满足要求)\n"
+         f"口味:苹果 桃子 西瓜\n圆形:{rc[0]} {rc[1]} {rc[2]}\n"
+         f"五角星形:{sc[0]} {sc[1]} {sc[2]}"
+         + _proto('{"min_candies": "<最少取出数,整数>"}'))
+    return q, ans
+
+
 # ── gate(只检验路由,不判答案)──────────────────────────────────────────────
 # 门控题必须参数化:若用固定题面,多 seed 合并会反复出同一批题(实测 6 seed
 # 合并出 72 条 gate 题,唯一题面只有 12 条),既浪费 token 又无统计增益。
@@ -231,11 +320,20 @@ GENERATORS = {
     "adv_premise": ("adversarial", adv_wrong_premise),
     "adv_depth": ("adversarial", adv_insufficient_depth),
     "adv_missing": ("adversarial", adv_missing_info),
+    "trap_ball": ("trap", trap_crt_ball),
+    "trap_widgets": ("trap", trap_crt_widgets),
+    "trap_lily": ("trap", trap_crt_lily),
+    "trap_decimal": ("trap", trap_decimal_compare),
+    "trap_letter": ("trap", trap_count_letter),
+    "trap_mushroom": ("trap", trap_mushroom),
+    "trap_candy": ("trap", trap_candy),
     "gate": ("gate", gen_gate),
 }
 
 DEFAULT_COUNTS = {"tick": 4, "lot": 4, "vwap": 4, "tiered_mm": 4, "ny_open": 4, "ex_rights": 4,
                   "cagr": 3, "mdd": 3, "adv_premise": 4, "adv_depth": 3, "adv_missing": 3,
+                  "trap_ball": 3, "trap_widgets": 3, "trap_lily": 3, "trap_decimal": 3,
+                  "trap_letter": 3, "trap_mushroom": 3, "trap_candy": 3,
                   "gate": len(GATE_TEMPLATES)}
 
 
