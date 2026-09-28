@@ -5,7 +5,8 @@
   "type": "module",
   "main": "validate.mjs",
   "scripts": {
-    "test": "node --test tests/test-*.mjs && python tests/test_assertions.py",
+    "test": "node --test tests/test-*.mjs && python tests/test_assertions.py && python tests/test_accuracy_bench.py",
+    "test:accuracy": "python tests/test_accuracy_bench.py",
     "test:unit": "node --test tests/test-*.mjs",
     "test:assertions": "python tests/test_assertions.py",
     "test:pwsh": "pwsh -File tests/test_pwsh_assertions.ps1",

@@ -30,6 +30,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install tzdata (Windows Python lacks IANA time zones)
+        run: |
+          # Windows 的 Python 不自带 IANA 时区库(TZPATH 为空),
+          # tests/test_accuracy_bench.py 的 zoneinfo 独立比对会抛 ZoneInfoNotFoundError。
+          # 该测试是准确率基准最强的独立证据之一,必须让它真实运行而非跳过。
+          python -m pip install --disable-pip-version-check tzdata
+
       - name: Guard Tracked Package Files Present
         run: |
           python -c "import pathlib,sys; req=['packages/assertions/python/jev_assertions/__init__.py','packages/assertions/python/jev_assertions/tick.py','packages/assertions/python/jev_assertions/margin.py','packages/assertions/python/jev_assertions/slippage.py','packages/assertions/python/jev_assertions/calendar.py','packages/assertions/python/jev_assertions/split.py','packages/assertions/python/jev_assertions/cli.py','tests/test_assertions.py','benchmarks/run_stress_matrix.py']; miss=[p for p in req if not pathlib.Path(p).is_file()]; print('missing:',miss); sys.exit(1 if miss else 0)"
@@ -37,6 +44,13 @@ jobs:
       - name: Run Python Assertion Regression Guard
         run: |
           python tests/test_assertions.py
+
+      - name: Run Accuracy Benchmark Self-Guard
+        run: |
+          # 守护准确率基准本身:参考解三类独立证据 + 判分器双向自检(20 seed)。
+          # 若因缺 tzdata 导致 zoneinfo 比对被跳过,此处显式失败 —— 不允许静默降级。
+          python -c "import zoneinfo,sys; zoneinfo.ZoneInfo('America/New_York'); print('tzdata OK')" || (echo '::error::zoneinfo 不可用,tzdata 安装失败,准确率基准的独立比对会被跳过' && exit 1)
+          python tests/test_accuracy_bench.py
 
       - name: Run Quantitative Stress Benchmark Matrix
         run: |
