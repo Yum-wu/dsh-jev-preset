@@ -344,4 +344,11 @@ def main():
     print(f"- 三路验证指标: 全部标注为 None（未测量，详见文件头诚实性声明）。")
 
 if __name__ == "__main__":
+    # Windows CI 默认 stdout 编码为 cp1252,中文 print 直接挂。
+    # 强制 UTF-8,与文件读写统一。
+    import sys, io
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     main()
