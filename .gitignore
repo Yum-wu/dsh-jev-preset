@@ -27,3 +27,8 @@ Desktop.ini
 # 关键结论与数字已摘录进 benchmarks/accuracy/DIFFICULTY-CALIBRATION.md
 benchmarks/accuracy/*.jsonl
 benchmarks/accuracy/report*.json
+
+# 编排基准的跑批产物(不入库)
+# - 含 timestamp 与 avg/p99_latency_ms,每次 `npm test` 都变 → 跟踪它会让工作树永远为脏
+# - 关键结论(成功率、断路器触发次数、角色去重)已摘录进 docs/ 与测试断言
+docs/orchestration-benchmark.json
