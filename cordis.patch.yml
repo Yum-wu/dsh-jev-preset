@@ -120,6 +120,21 @@
                 (括号内的限定语、脚注、从句、藏在长句里的约束条件)。
 
                 **若存在** → 输出「关键条件清单」显式化,并写入每一路 prompt。
+                  清单**必须逐条引用题干原句**(而非你的转述/记忆)—— 这是防
+                  "凭记忆认出经典原题、忽略改动" 的关键。
+
+                  **行业旁证**:Anthropic 于 2024-10 为 Claude 3.5 Sonnet 专门加了
+                  一段系统提示词,针对的正是同一失效模式:
+                  > "If Claude is shown a familiar puzzle, it writes out the puzzle's
+                  >  constraints **explicitly stated in the message, quoting the human's
+                  >  message** to support the existence of each constraint. Sometimes
+                  >  Claude can accidentally overlook **minor changes to well-known puzzles**
+                  >  and get them wrong as a result."
+                  ([官方 release notes](https://docs.anthropic.com/en/release-notes/system-prompts#oct-22nd-2024),
+                  因 [MisguidedAttention](https://github.com/cpldcpu/MisguidedAttention) 评测而加)
+
+                  → 即:**引用原句**比**转述**更抗定势效应。本仓 persona 采用同一做法。
+
                 **若不存在**(关键信息已在显眼位置) → **保持原样,不要加提示**。
 
                 **为什么这是条件性的而非无条件**(实测,含一次结论更正):
