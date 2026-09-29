@@ -428,6 +428,67 @@ class TestCognitiveTraps(unittest.TestCase):
                 continue
             self.assertIn("保留 4 位小数", c["question"], c["id"])
 
+    def test_ma_static_einstellung_cases(self):
+        """定势效应题(MisguidedAttention 类)必须存在且参考答案判对。
+
+        考察"抑制对经典原题的套用",与 candy 类(提取隐含约束)考察不同能力 ——
+        实测 shangtang 在 candy 上 33.3% 但在这类题上 100%,故两类必须并存。
+        """
+        ma = [c for c in build_suite(20260928) if c["category"] == "ma_static"]
+        self.assertEqual(len(ma), 12, "定势效应题应为 12 道")
+        for c in ma:
+            self.assertTrue(grade_case(c, reference_text(c))["correct"], c["id"])
+
+    def test_ma_static_answers_independently_verified(self):
+        """逐题核对:答案应与**经典原题**相反或更简单(全部独立验证,非引用来源)。"""
+        ma = [c for c in build_suite(20260928) if c["category"] == "ma_static"]
+        exp = {}
+        for c in ma:
+            for k, v in c["expected"].items():
+                exp[k] = v
+        # 水壶 4L 不可能(gcd 整除性,见下方专项测试)
+        self.assertEqual(exp["status"], "impossible")
+        # 反 Monty Hall:保持(暴力枚举 12/18=2/3,见下方专项测试)
+        self.assertEqual(exp["action"], "keep")
+        # 线性增长半满在第 20 天(经典翻倍题是第 39 天)
+        self.assertEqual(exp["day"], "20")
+        # 已死猫 P(活)=0(经典薛定谔猫是 0.5)
+        self.assertEqual(exp["alive_prob"], "0")
+        # 电车:五个已死者 → 不拉杆
+        self.assertEqual(exp["pull"], "no")
+        # 羽毛 vs 钢:1 磅 = 0.4536 kg < 1 kg
+        self.assertEqual(exp["heavier"], "feathers")
+        # 一次过河
+        self.assertEqual(exp["trips"], "1")
+
+    def test_monty_hall_inverse_bruteforce(self):
+        """反 Monty Hall 暴力枚举验证:保持获胜 2/3(与原题"换门"相反)。"""
+        from itertools import permutations
+        win_keep = win_switch = total = 0
+        for layout in permutations(["donkey", "car", "car"]):
+            for pick in range(3):
+                others = [i for i in range(3) if i != pick]
+                car_others = [i for i in others if layout[i] == "car"]
+                if not car_others:
+                    continue                       # 主持人无法露出车 → 不计
+                total += 1
+                remaining = [i for i in others if i != car_others[0]][0]
+                if layout[pick] == "car":
+                    win_keep += 1
+                if layout[remaining] == "car":
+                    win_switch += 1
+        self.assertEqual(total, 18)
+        self.assertEqual(win_keep, 12)             # 2/3
+        self.assertEqual(win_switch, 6)            # 1/3
+        self.assertGreater(win_keep, win_switch)   # 与原 Monty Hall 相反
+
+    def test_jugs_impossible_gcd_rule(self):
+        """水壶题 gcd 整除性验证:4L 用 6L+12L 不可能;3L 用 1L+2L 可能。"""
+        from math import gcd
+        self.assertEqual(gcd(6, 12), 6)
+        self.assertNotEqual(4 % gcd(6, 12), 0)
+        self.assertEqual(3 % gcd(1, 2), 0)
+
     def test_merge_multi_seed_unique_ids(self):
         """merge 子命令:多 seed 合并后 id 必须全局唯一,且总数 = seed 数 × 单套题数。"""
         with tempfile.TemporaryDirectory() as d:
