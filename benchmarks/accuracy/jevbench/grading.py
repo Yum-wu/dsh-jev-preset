@@ -33,23 +33,33 @@ def _field_eq(got, want) -> bool:
     return got == want
 
 
+NO_ANSWER = "NO_ANSWER"
+
+
 def grade_case(case: dict, text: str) -> dict:
-    """返回 {correct, reason, route}。gate 题只判路由;其余题只判答案 JSON 中 expected 的键。"""
+    """返回 {correct, reason, route, no_answer}。gate 题只判路由;其余题只判答案 JSON 中 expected 的键。
+
+    `no_answer` 区分「没给出可判分的答案」与「给了答案但算错」——
+    2026-09-30 的测量事故中两者被混为一谈,导致 60% 未收敛样本被计成答错。
+    """
     route = extract_route(text)
     if case["kind"] == "gate":
         want = case["expected"]["expect_three_path"]
         got = is_three_path(route)
-        return {"correct": got == want, "route": route,
+        return {"correct": got == want, "route": route, "no_answer": False,
                 "reason": "ok" if got == want else f"路由={route!r},期望三路={want}"}
     ans = extract_answer(text)
     if ans is None:
-        return {"correct": False, "route": route, "reason": "无可解析的 ```json 答案块"}
+        return {"correct": False, "route": route, "no_answer": True,
+                "reason": f"{NO_ANSWER}: 无可解析的 ```json 答案块"}
     for key, want in case["expected"].items():
         if key not in ans:
-            return {"correct": False, "route": route, "reason": f"缺少键 {key}"}
+            return {"correct": False, "route": route, "no_answer": False,
+                    "reason": f"缺少键 {key}"}
         if not _field_eq(ans[key], want):
-            return {"correct": False, "route": route, "reason": f"{key}: 得到 {ans[key]!r},期望 {want!r}"}
-    return {"correct": True, "route": route, "reason": "ok"}
+            return {"correct": False, "route": route, "no_answer": False,
+                    "reason": f"{key}: 得到 {ans[key]!r},期望 {want!r}"}
+    return {"correct": True, "route": route, "no_answer": False, "reason": "ok"}
 
 
 def load_jsonl(path: str) -> list:
@@ -67,7 +77,8 @@ def grade_runs(suite: list, runs: list) -> list:
         if case is None:
             raise KeyError(f"结果里的 case_id 不在题集中: {r['case_id']}(题集 seed 不一致?)")
         if r.get("error"):
-            g = {"correct": False, "route": None, "reason": f"运行失败: {r['error']}"}
+            g = {"correct": False, "route": None, "no_answer": True,
+                 "reason": f"运行失败: {r['error']}"}
         else:
             g = grade_case(case, r.get("text", ""))
         out.append({**{k: r.get(k) for k in ("case_id", "config", "rep", "tokens", "elapsed_ms")},
@@ -88,6 +99,8 @@ def summarize(graded: list) -> dict:
         k = sum(r["correct"] for r in answer_rows)
         n = len(answer_rows)
         lo, hi = wilson(k, n)
+        # 「没答」与「答错」分离:no_answer 占比过高说明测量链路有问题,而非模型能力差。
+        no_ans = sum(1 for r in answer_rows if r.get("no_answer"))
         by_cat = defaultdict(lambda: [0, 0])
         for r in rows:
             by_cat[r["category"]][0] += r["correct"]
@@ -100,6 +113,10 @@ def summarize(graded: list) -> dict:
                                 "wilson95": [round(lo, 4), round(hi, 4)]},
             "gate_accuracy": {"k": sum(r["correct"] for r in gate_rows), "n": len(gate_rows)},
             "run_errors": sum(r["run_error"] for r in rows),
+            # 2026-09-30 事故守卫:该值 > 20% 时,正确率不可信(多半是没等到收敛)。
+            "no_answer": {"k": no_ans, "n": len(answer_rows),
+                          "rate": round(no_ans / len(answer_rows), 4) if answer_rows else None,
+                          "untrustworthy": bool(answer_rows) and no_ans / len(answer_rows) > 0.2},
             "by_category": {c: f"{a}/{b}" for c, (a, b) in sorted(by_cat.items())},
             "false_consensus": {"wrong": sum(not r["correct"] for r in consensus), "n": len(consensus)},
             "flagged_route_accuracy": {"k": sum(r["correct"] for r in flagged), "n": len(flagged)},

@@ -25,6 +25,18 @@ def extract_route(text: str):
     return m.group(1).strip() if m else None
 
 
+# 单路路径标识:这些表示**没有**启动多路隔离采样。
+# 2026-09-30 新增 `断言通过`/`断言不适用`:门控改为「断言优先」后,
+# 计算类任务的首选路径是「单路 + 真跑复算」,它**不是**三路。
+_SINGLE_PATH_PREFIXES = ("fast-pass", "断言通过", "断言不适用")
+
+
 def is_three_path(route) -> bool:
-    """路由标识是否表示启动了多路验证(非 Fast-Pass)。"""
-    return route is not None and not route.lower().startswith("fast-pass")
+    """路由标识是否表示启动了多路验证。
+
+    返回值含义:True = 走了三路(或多路);False = 单路路径。
+    """
+    if route is None:
+        return False
+    low = route.lower()
+    return not any(low.startswith(p) for p in _SINGLE_PATH_PREFIXES)

@@ -532,6 +532,11 @@ class TestGrading(unittest.TestCase):
         self.assertFalse(is_three_path("Fast-Pass"))
         self.assertTrue(is_three_path("2/3 Majority Consensus"))
         self.assertFalse(is_three_path(None))
+        # 2026-09-30 门控改「断言优先」后新增的单路标识,不得被误判为三路
+        self.assertFalse(is_three_path("断言通过"))
+        self.assertFalse(is_three_path("断言不适用"))
+        self.assertTrue(is_three_path("3/3 Independent Consensus"))
+        self.assertTrue(is_three_path("Triggered by Test Failure"))
 
     def test_gate(self):
         c = {"id": "g", "category": "gate", "kind": "gate", "expected": {"expect_three_path": True}}

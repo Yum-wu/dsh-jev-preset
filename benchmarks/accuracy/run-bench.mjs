@@ -22,7 +22,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CONFIG_PREFIX, doneKeys, lastTurn, parseArgs } from './runner-lib.mjs'
+import { CONFIG_PREFIX, converged, doneKeys, hasAnswerBlock, lastTurn, parseArgs, runningChildren } from './runner-lib.mjs'
 
 const args = parseArgs(process.argv.slice(2), ['config'])
 const SUITE = args.suite
@@ -30,7 +30,7 @@ const OUT = args.out
 const CONFIGS = args.config ?? ['C1', 'C3']
 const REPS = Number(args.reps ?? 1)
 const TIMEOUT_MS = Number(args.timeout ?? 900) * 1000
-const PRESET = { C0: 'standard', C1: 'standard', C3: 'jev' }
+const PRESET = { C0: 'standard', C1: 'standard', C3: 'jev', A1: 'standard', A2: 'standard', C3F: 'jev' }
 
 if (!SUITE || !OUT) {
   console.error('必须提供 --suite 与 --out')
@@ -103,20 +103,42 @@ async function runOne({ c, cfg, rep }) {
     }
     await rpc('session/prompt', { request: { sessionId: row.session_id, requestId: crypto.randomUUID(), mode: 'queue',
       content: [{ type: 'text', text: CONFIG_PREFIX[cfg] + c.question }] } })
+    // ⚠ 关键(2026-09-30 修复):JEV 用 backgroundMode=continuable,派发三路后
+    //   父会话的 turn **立即**以 completed 结束(子代理仍在后台跑)。若只等
+    //   `last.ended`,会在「三路运行中,等结算」那一轮就收工,把未收敛误判为答错
+    //   —— 历史 runs-c30-c3-sb.jsonl 有 18/30 条正是如此。
+    //   故收敛判据 = 本轮已结束 **且** 无 running 子会话 **且**(已出答案块 或 静默达标)。
+    const SETTLE_MS = Number(args.settle ?? 120) * 1000
     let last = { ended: false }
+    let idleSince = Date.now()
+    let lastSnap = ''
+    let peakKids = 0
+    let sawRunning = false
     while (Date.now() - started < TIMEOUT_MS) {
       await sleep(5000)
       const proj = await rpc('session/projections', { request: { sessionId: row.session_id } })
       const page = await rpc('session/page', { request: { address: { kind: 'session', sessionId: row.session_id }, throughSeq: proj.asOfSeq } })
       last = lastTurn(page.records ?? [])
-      if (last.ended) {
+      const list = await rpc('session/list', { _request: {} })
+      const kids = (list.items ?? []).filter((s) => s.parentSessionId === row.session_id)
+      const runningKids = runningChildren(list.items, row.session_id)
+      peakKids = Math.max(peakKids, kids.length)
+      if (kids.length > 0) sawRunning = true
+      const snap = `${last.turn}|${last.text.length}|${kids.length}|${runningKids}`
+      if (snap !== lastSnap) { lastSnap = snap; idleSince = Date.now() }
+      if (converged({ ended: last.ended, runningKids, hasAnswer: hasAnswerBlock(last.text),
+        idleMs: Date.now() - idleSince, settleMs: SETTLE_MS })) {
         row.route_model = proj.values?.modelSelection?.lastUsed ?? null
+        row.converged = true
         break
       }
     }
+    row.peak_subagents = peakKids
+    row.saw_running_child = sawRunning
     row.text = last.text ?? ''
     row.end_reason = last.endReason ?? null
     if (!last.ended) row.error = `timeout ${TIMEOUT_MS / 1000}s`
+    else if (!row.converged) row.error = `未收敛(静默 ${SETTLE_MS / 1000}s 内未见答案块)`
     else if (last.endReason !== 'completed') row.error = `turn/end ${last.endReason}`
     const t = await sumTokens(row.session_id)
     row.tokens = t.total

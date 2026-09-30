@@ -28,6 +28,13 @@ Desktop.ini
 benchmarks/accuracy/*.jsonl
 benchmarks/accuracy/report*.json
 
+# 可复现的实验/取证脚本(_analyze_/_check_/_diag_/_exp_/_grade_/_mk_/_verify_):
+# 属证据链,入库
+# 一次性排查脚本(_probe_*):不入库
+# 例外:_probe_turns.mjs 是可复用的多轮诊断工具,显式保留
+benchmarks/accuracy/_probe_*
+!benchmarks/accuracy/_probe_turns.mjs
+
 # 编排基准的跑批产物(不入库)
 # - 含 timestamp 与 avg/p99_latency_ms,每次 `npm test` 都变 → 跟踪它会让工作树永远为脏
 # - 关键结论(成功率、断路器触发次数、角色去重)已摘录进 docs/ 与测试断言

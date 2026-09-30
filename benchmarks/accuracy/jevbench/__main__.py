@@ -124,6 +124,17 @@ def main(argv=None) -> int:
             with open(args.out, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text + "\n")
         print(json.dumps(report["summary"], ensure_ascii=False, indent=2))
+        # 2026-09-30 事故守卫:某配置「没给答案」占比 >20% 时,其正确率是测量伪影,
+        # 不能再被当成能力结论。此处硬失败(退出码 3),逼人先看测量链路。
+        bad = [c for c, s in report["summary"].items() if s.get("no_answer", {}).get("untrustworthy")]
+        if bad:
+            for c in bad:
+                na = report["summary"][c]["no_answer"]
+                print(f"\n⚠️ 配置 {c}: {na['k']}/{na['n']} ({na['rate']:.1%}) 未给出可判分答案 —— "
+                      f"正确率不可信。多半是没等到收敛(如 subagent 仍在后台就收工),"
+                      f"请先修测量链路再解读。", file=sys.stderr)
+            print("详见 benchmarks/accuracy/MEASUREMENT-BUG-2026-09-30.md", file=sys.stderr)
+            return 3
     elif args.cmd == "compare":
         print(json.dumps(compare(graded, args.a, args.b), ensure_ascii=False, indent=2))
     elif args.cmd == "filter":

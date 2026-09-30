@@ -17,10 +17,38 @@ In quantitative trading, risk management calculations, and critical system refac
 2. **Autoregressive Co-contamination**: Simulating "multiple perspectives" within the same context window causes downstream tokens to be conditioned on previous errors.
 3. **Absence of Real Execution Truth**: Theoretical text reasoning cannot substitute for sandbox runtime execution. Formulas and logic must pass real execution before approval.
 
-**Key JEV Innovations**:
-- **Objective Gated Routing**: Fast-Pass for routine low-risk queries without wasting tokens; compulsory 3-way isolated fission for high-risk domains.
-- **True 3-Way Context-Isolated Sampling**: Uses `provider: spawn` to spin up 3 strictly isolated subagent contexts (Rigorous Deriver, Red-Team Adversary, Minimalist Executor).
-- **Execution-First Arbitration & Veto Power**: Real sandbox execution overrides verbal reasoning. Consistent consensus converges instantly; unresolved divergence undergoes Jev Rerank.
+**Key JEV Innovations** (priority re-ranked by measured data, 2026-09-30):
+- **① Assertion-First**: For computational/numerical tasks, answer in a **single path and actually
+  re-run the computation in code**. Measured on 30 computational cases: forced re-computation raised
+  accuracy from **24/30 → 30/30** (McNemar **p=0.0312**, zero reversals) at only **×2.0** cost.
+  This is the project's **only statistically significant** positive result.
+- **② Objective Gated Routing**: Fast-Pass for routine low-risk queries; 3-way fission **only** for
+  high-risk tasks that **cannot be expressed as an assertion** (security boundaries, concurrency/state
+  machines, non-unique-value trade-offs).
+- **③ True 3-Way Context-Isolated Sampling**: Uses `provider: spawn` to spin up 3 strictly isolated
+  subagent contexts (Rigorous Deriver, Red-Team Adversary, Minimalist Executor).
+  ⚠ **Fallback path, not the default**: measured, adding 3-way sampling on top of a passing assertion
+  yields **zero gain** (10/10 vs 10/10, p=1.0) while costing **×10.6** more, with a higher run-failure
+  rate (2/12 vs 0/12).
+
+### Method priority (measured, 2026-09-30)
+
+| Priority | Method | Effect | Cost | Applies to |
+|---|---|---|---|---|
+| 1 | **Prompt structuring** | +89pp (5/5 models) | **×1** | Reading/attention blind spots |
+| 2 | **Execution assertion** | **24/30 → 30/30 (p=0.0312)** | **×2.0** | Computational (assertion-expressible) |
+| 3 | Heterogeneous model swap | +89pp (some models) | ×5.4 | Reading blind spots when structuring is insufficient |
+| 4 | 3-way isolated sampling | **zero gain** (p=1.0) | ×10.6 | Only when neither assertion nor model swap is possible |
+
+> **Mechanism**: on candy reading-trap cases, all 5 wrong 3-way answers were of the
+> "missed a key condition" type (bias — voting cannot fix it); on numeric cases, errors were
+> scattered arithmetic slips (variance — an assertion does fix them). Two sides of the same
+> statistical principle: `voting reduces variance, not bias`. Consistent with
+> [Large Language Monkeys](https://arxiv.org/abs/2407.21787) — extra sampling only converts to
+> performance where an **automatic verifier** exists.
+>
+> Evidence: `benchmarks/accuracy/EXP-F-ASSERTION-EFFECT.md`,
+> `EXP-G-THREE-PATH-VS-ASSERTION.md`, `MEASUREMENT-BUG-2026-09-30.md`.
 
 ---
 
