@@ -1,139 +1,134 @@
 # dsh-jev-preset
 
-[![CI Status](https://github.com/Yum-wu/dsh-jev-preset/actions/workflows/ci.yml/badge.svg)](https://github.com/Yum-wu/dsh-jev-preset/actions)
+[![CI](https://github.com/Yum-wu/dsh-jev-preset/actions/workflows/ci.yml/badge.svg)](https://github.com/Yum-wu/dsh-jev-preset/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![DSH Compatibility](https://img.shields.io/badge/DSH-0.1.7%2B-green.svg)](https://github.com/deepseek-ai)
 
-[中文文档 (Chinese)](./README.md)
+[中文](./README.md)
 
-**JEV (Judgment-Execution-Verification) Adaptive Cross-Verification Preset** for DeepSeek Harness (DSH) — An industrial-grade standard bundle for quantitative finance and mission-critical agent workflows.
+An agent preset bundle for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH).
 
----
-
-## 🌟 Philosophy & Core Pain Points Solved
-
-In quantitative trading, risk management calculations, and critical system refactoring, single-model reasoning exhibits three major hazards:
-1. **Overconfident Hallucination**: Single-context models can produce grammatically flawless justifications even when numerical derivations are completely wrong.
-2. **Autoregressive Co-contamination**: Simulating "multiple perspectives" within the same context window causes downstream tokens to be conditioned on previous errors.
-3. **Absence of Real Execution Truth**: Theoretical text reasoning cannot substitute for sandbox runtime execution. Formulas and logic must pass real execution before approval.
-
-**Key JEV Innovations** (priority re-ranked by measured data, 2026-09-30):
-- **① Assertion-First**: For computational/numerical tasks, answer in a **single path and actually
-  re-run the computation in code**. Measured on 30 computational cases: forced re-computation raised
-  accuracy from **24/30 → 30/30** (McNemar **p=0.0312**, zero reversals) at only **×2.0** cost.
-  This is the project's **only statistically significant** positive result.
-- **② Objective Gated Routing**: Fast-Pass for routine low-risk queries; 3-way fission **only** for
-  high-risk tasks that **cannot be expressed as an assertion** (security boundaries, concurrency/state
-  machines, non-unique-value trade-offs).
-- **③ True 3-Way Context-Isolated Sampling**: Uses `provider: spawn` to spin up 3 strictly isolated
-  subagent contexts (Rigorous Deriver, Red-Team Adversary, Minimalist Executor).
-  ⚠ **Fallback path, not the default**: measured, adding 3-way sampling on top of a passing assertion
-  yields **zero gain** (10/10 vs 10/10, p=1.0) while costing **×10.6** more, with a higher run-failure
-  rate (2/12 vs 0/12).
-
-### Method priority (measured, 2026-09-30)
-
-| Priority | Method | Effect | Cost | Applies to |
-|---|---|---|---|---|
-| 1 | **Prompt structuring** | +89pp (5/5 models) | **×1** | Reading/attention blind spots |
-| 2 | **Execution assertion** | **24/30 → 30/30 (p=0.0312)** | **×2.0** | Computational (assertion-expressible) |
-| 3 | Heterogeneous model swap | +89pp (some models) | ×5.4 | Reading blind spots when structuring is insufficient |
-| 4 | 3-way isolated sampling | **zero gain** (p=1.0) | ×10.6 | Only when neither assertion nor model swap is possible |
-
-> **Mechanism**: on candy reading-trap cases, all 5 wrong 3-way answers were of the
-> "missed a key condition" type (bias — voting cannot fix it); on numeric cases, errors were
-> scattered arithmetic slips (variance — an assertion does fix them). Two sides of the same
-> statistical principle: `voting reduces variance, not bias`. Consistent with
-> [Large Language Monkeys](https://arxiv.org/abs/2407.21787) — extra sampling only converts to
-> performance where an **automatic verifier** exists.
->
-> Evidence: `benchmarks/accuracy/EXP-F-ASSERTION-EFFECT.md`,
-> `EXP-G-THREE-PATH-VS-ASSERTION.md`, `MEASUREMENT-BUG-2026-09-30.md`.
+It does one thing: before the model commits to a numeric or risk-control answer, it runs real code once and checks the number.
 
 ---
 
-## 📊 30 High-Risk Quantitative Benchmark Performance
+## What it fixes
 
-Tested across 5 critical risk categories (Tick Quantization, Tiered Liquidation, Slippage Penetration, Timezone/DST Alignment, and Adjustment Factor Zero-Division):
+Single-session models fail on quantitative work in three ways:
 
-> ⚠️ Honesty notice (2026-09-28): an earlier version of this table claimed four
-> rows of `100.0%`. Those were identities produced by local if-elif hard-coded
-> branches (`hit = True` tautology, `assert isinstance(expected, dict)` tautology),
-> **not** measured JEV three-way isolated sampling. The figures have been withdrawn;
-> see [`docs/benchmark-report.md`](./docs/benchmark-report.md) for the full disclosure.
+1. **Wrong but fluent.** Bad numbers get wrapped in smooth reasoning that survives human review.
+2. **Autoregressive self-contamination.** Asking one session to "analyze from three perspectives" anchors later tokens on earlier ones — not real multi-path.
+3. **No physical ground truth.** A formula that never ran in an interpreter should not ship.
 
-30 cases (5 risk domains) currently exist only as a **case parameter inventory**; three-way
-sampling has not yet been genuinely executed. The four sampling metrics currently
-return `None` (unmeasured) in `benchmarks/benchmark-results.json`. Genuinely verified
-evidence consists of: static contract checks (`validate.mjs`, `tests/test-*.mjs`, all green)
-and one fully archived real 4-subagent isolated run (`notes/jev-three-path-run-2026-09-28.md`).
+## Install
 
-> 📖 Field contract (`benchmarks/benchmark-results.json`, since 2026-09-28):
-> `path1_avg_convergence_ms` / `path2_attack_hit_rate` / `path3_pass_at_k_rate` /
-> `consensus_rate_3_of_3` are always `null`, each with a `*_note` explaining why;
-> the only machine-consumable fields are `case_inventory_count` (=30) and the
-> `results[]` case inventory. Historical versions emitted `100.0%` — identities,
-> not measurements; downstream consumers **must not** parse old versions as numbers.
+A standard DSH bundle: an npm package carrying one `cordis.patch.yml` layer, mounted into the profile's loader tree.
 
----
-
-## 🧰 Built-in Quantitative & Risk Assertion Suite
-
-- `packages/assertions/python/jev_assertions/`:
-  - `tick.py`: Tick size truncation, floor/ceiling quantize, lot step budget, inverse contract integer rounding.
-  - `margin.py`: Tiered maintenance margin (MMR), quick deduction, linear/inverse liquidation price formulas.
-  - `slippage.py`: Orderbook VWAP, Almgren-Chriss square-root impact model, AMM constant product impact.
-  - `calendar.py`: DST timezone shifts (EST/EDT), monotonic clock backward-jump detection.
-  - `split.py`: Ex-right price, forward adjustment log-return safety, reverse split volume inverse conservation.
-- `packages/assertions/pwsh/JevAssertions.psm1`: Cross-compatible PowerShell module with UTF-8 BOM.
-
----
-
-## 🚀 Quick Start
-
-### Installation
-
-Declare the preset within your Cordis profile Loader tree:
-
-```yaml
-- insert:
-    - id: preset-jev
-      name: '@deepseek-ai/dsh-agent-preset'
-      config:
-        id: jev
-        name: JEV Cross-Verification
-        order: 5
-        plugins: [ ... ]
+```
+dsh plugin --profile <your-profile> add dsh-jev-preset
 ```
 
-### Running Tests
+Verify the layer landed without booting:
+
+```
+dsh --profile <your-profile> --dump-config
+```
+
+You should see a `# == dsh-jev-preset` layer. Then boot — **JEV Cross-Verification** appears in the preset list.
+
+Remove the same way: `dsh plugin --profile <your-profile> remove dsh-jev-preset`.
+
+> This bundle declares no `dependencies` / `peerDependencies` and hardcodes no DSH version.
+> The declaration row ships `inject = ["agentPresets"]`, so the loader activates it once the registry is ready,
+> and sub-plugin paths resolve from the host `@deepseek-ai/dsh-agent-preset` baseUrl.
+> Tested working on 0.2.0-rc.2.
+
+## Gating: what happens when
+
+The model routes on its own; no user action needed.
+
+| Task | Handling |
+|---|---|
+| Everyday / low risk (lookup, Q&A, small single-file edits) | Fast-Pass, single shot |
+| Numeric, risk, position sizing, liquidation price, indicator math | **Single pass + real code re-check**; ship only if assertions pass |
+| High risk but no single numeric answer (security boundaries, concurrency, design tradeoffs) | 3-way isolated sampling |
+| Any of the above, but assertion/test fails | Do not ship. Fix the assertion first; escalate to 3-way only if it can't be fixed |
+
+3-way is the fallback, not the default. See the numbers below.
+
+## Measured results
+
+All figures come from reproducible experiments under `benchmarks/accuracy/`.
+
+| Method | Effect | Cost |
+|---|---|---|
+| Prompt structuring | +89pp (100% on 5/5 models) | ×1 |
+| **Execution assertion** | **24/30 → 30/30, McNemar p=0.0312** | ×2.0 |
+| Switch to a heterogeneous model | +89pp (some models) | ×5.4 |
+| 3-way isolated sampling | **Gain 0 (p=1.0)** | ×10.6 |
+
+**The assertion pass is the only statistically significant positive result in this repo.** Stacking 3-way sampling on top of an already-asserted answer adds nothing (30/30 vs 30/30, p=1.0) at 15.3× the cost, with a higher run-failure rate (2/12 vs 0/12).
+
+Why 3-way can't fix reading errors: on candy trap problems, all 5 wrong answers equal the "blind" value exactly — failures sit in the **information-extraction layer** (missed constraints). Voting reduces variance, not bias. Calculation problems are the opposite: errors are scattered arithmetic slips, which assertions do catch.
+
+> Retracted: the 30-problem batch `runs-c30-c3-sb.jsonl` (3.3% / p=1.0 / blind rate 33%) had 18/30 rows affected by a measurement bug — the runner scored before subagent settlement. The 9-problem batch is unaffected and still valid. Audit: `benchmarks/accuracy/MEASUREMENT-BUG-2026-09-30.md`.
+
+## Relation to published work
+
+| Dimension | Source | Here |
+|---|---|---|
+| Sampling converts to performance only with a verifier | [Large Language Monkeys](https://arxiv.org/abs/2407.21787) (UC Berkeley/CMU) | assertions ×2.0 significant; 3-way ×10.6 gain 0 |
+| Mindset effect causes missed constraints | [MisguidedAttention](https://github.com/cpldcpu/MisguidedAttention); Anthropic changed its system prompt for the same failure in 2024-10 | §3.0 constraint diagnosis, +89pp |
+| 85.5% sycophantic conformity in unisolated agents | [arXiv:2605.00914](https://arxiv.org/html/2605.00914), [arXiv:2503.13657](https://arxiv.org/html/2503.13657v1) | no answer-forward anchoring; `maxDepth:1` |
+| Heterogeneous models share latent entanglement; agreement ≠ independence | [arXiv:2604.07650](https://arxiv.org/abs/2604.07650) | execution result outranks 3-way consensus |
+
+## Assertion library
+
+When the gate decides "this can be an assertion", reuse these instead of writing throwaway scripts — reuse removes the bugs and float drift of hand-written code.
+
+Python: `packages/assertions/python/jev_assertions/`
+
+- `tick.py` — tick truncation, rounding direction, grid alignment, inverse contract lots
+- `margin.py` — tiered maintenance margin, quick deduction, linear/inverse liquidation price
+- `slippage.py` — orderbook VWAP, Almgren-Chriss impact, AMM slippage
+- `calendar.py` — DST transitions, monotonic clock regression
+- `split.py` — ex-rights price, forward-adjusted returns, reverse split factor
+
+PowerShell: `packages/assertions/pwsh/JevAssertions.psm1` (PS 5.1 / 7, UTF-8 BOM)
+
+Call all 18 assertions from the CLI:
 
 ```bash
-# Run all unit and assertion tests
-npm test
+python packages/assertions/python/jev_assertions/cli.py --list
 
-# Run 30-case stress benchmark matrix
-npm run test:benchmark
-
-# Validate Cordis patch schema
-npm run validate
+python packages/assertions/python/jev_assertions/cli.py \
+  --func tick_floor \
+  --args '{"raw_price": 67432.178, "tick_size": 0.01, "expected": "67432.17"}'
 ```
 
----
+Emits JSON, exit 0 on pass, exit 1 on assertion failure.
 
-## 🔬 Industry Benchmarks & Theoretical Foundations
+## Defenses that exist (and ones that don't)
 
-JEV aligns directly with empirical findings from leading AI safety and multi-agent systems research:
+Present and verified:
 
-| Dimension | Benchmark / Paper | Core Finding | JEV Implementation & Evidence |
-|---|---|---|---|
-| **Execution Verifier First** | **Large Language Monkeys**<br>([arXiv:2407.21787](https://arxiv.org/abs/2407.21787), UC Berkeley / CMU) | Sampling & voting scale reliably only in domains with an **automated execution verifier**; otherwise performance quickly plateaus. | **EXP-F Empirical**: 30 complex financial/numerical problems jumped from 24/30 (80%) pure inference to **30/30 (100%)** with code assertions (McNemar **p = 0.0312**). |
-| **Attention Bias & Mindset Trap** | **MisguidedAttention**<br>([GitHub](https://github.com/cpldcpu/MisguidedAttention) / Anthropic 2024-10 Release) | LLMs suffer from "Einstellungseffekt" (habitual mindset bias), reciting verbatim solutions to unmodified puzzles. **Anthropic adopted explicit constraint quoting to fix this**. | **§3.0 Diagnostic Gating**: On trap problems, standard mode defaults to classic blind sampling (24), while JEV identifies tactical constraints and runs 9720-state BFS to reach optimal 14 (+88.9pp across models). |
-| **Anti-Sycophancy & Stopping Rules** | **MASFT Failure Taxonomy**<br>([arXiv:2503.13657](https://arxiv.org/html/2503.13657v1), UC Berkeley) | Unisolated agents exhibit **85.5% sycophantic conformity**; FC3 failure demonstrates agents rarely know when to terminate. | **Anti-Anchoring + maxDepth: 1**: Forbids passing partial answers downstream, enforces recursive hard limit depth=1, caps single-path dispatch retry at 1. |
-| **Cost of Consensus** | **The Cost of Consensus**<br>([arXiv:2605.00914](https://arxiv.org/html/2605.00914) & [arXiv:2604.07650](https://arxiv.org/abs/2604.07650)) | Group chatter leads to contextual fragility (up to 70% answer reversals); heterogeneous LLMs share latent entanglement errors. | **One-Vote Execution Veto**: Real code execution (Pass@k) overrides all text arguments and consensus votes. |
+- **Recursion block** `maxDepth: 1` — subagents cannot spawn further; measured 0 grandchild sessions, engine throws `SubagentDepthError`.
+- **Isolated service realms** — compaction / delegation live in private realms; checked statically by `validate.mjs`.
 
----
+Absent (do not assume otherwise):
 
-## 📜 License
+- **Standalone circuit breaker** — does not exist. Failure recovery comes from the host `@deepseek-ai/dsh-llm-retry`. The one in `tests/test-circuit-breaker.mjs` is a reference implementation only.
+- **Role mutex** — does not exist. 3-way role uniqueness rests on persona discipline, not code, so the model can still dispatch two Path 3s.
 
-Distributed under the [MIT License](./LICENSE).
+## Development
+
+```bash
+npm test                # node unit tests + Python assertions + suite self-check
+npm run validate        # cordis.patch.yml and loader composition
+npm run test:benchmark  # 30 boundary cases (see caveat)
+```
+
+The four statistics in `benchmarks/run_stress_matrix.py` currently return `None` — those 30 cases are a parameter inventory, and 3-way sampling has not actually been run on them. An older version printed four rows of `100.0%`; those were tautologies from a hardcoded `hit = True`, not measurements, and have been removed. Do not parse numbers from historical versions; see [`docs/benchmark-report.md`](./docs/benchmark-report.md).
+
+## License
+
+[MIT](./LICENSE)
