@@ -2,7 +2,7 @@
 
 [![CI Status](https://github.com/Yum-wu/dsh-jev-preset/actions/workflows/ci.yml/badge.svg)](https://github.com/Yum-wu/dsh-jev-preset/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![DSH Compatibility](https://img.shields.io/badge/DSH-0.1.7-green.svg)](https://github.com/deepseek-ai)
+[![DSH Compatibility](https://img.shields.io/badge/DSH-0.1.7%2B-green.svg)](https://github.com/deepseek-ai)
 
 [中文文档 (Chinese)](./README.md)
 

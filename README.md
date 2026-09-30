@@ -2,7 +2,7 @@
 
 [![CI Status](https://github.com/Yum-wu/dsh-jev-preset/actions/workflows/ci.yml/badge.svg)](https://github.com/Yum-wu/dsh-jev-preset/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![DSH Compatibility](https://img.shields.io/badge/DSH-0.1.7-green.svg)](https://github.com/deepseek-ai)
+[![DSH Compatibility](https://img.shields.io/badge/DSH-0.2.0-green.svg)](https://github.com/deepseek-ai)
 
 [English Documentation](./README_EN.md)
 
@@ -156,7 +156,7 @@ python packages/assertions/python/jev_assertions/cli.py --func tick_floor --args
 
 ### 安装与挂载
 
-本预设是面向 DSH 0.1.7 的纯声明式 Cordis Bundle。将本插件目录挂载至 profile 的 Loader 树中：
+本预设是面向 DSH（0.1.7+ / 0.2.0 实测通过）的纯声明式 Cordis Bundle。不写死运行时版本号，路径由宿主声明行 baseUrl 解析。将本插件目录挂载至 profile 的 Loader 树中：
 
 ```yaml
 - insert:
