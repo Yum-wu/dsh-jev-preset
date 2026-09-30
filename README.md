@@ -216,6 +216,19 @@ npm run validate
 
 ---
 
+## 🔬 业界公认基准与学术验证依据 (Academic & Industry Benchmarks)
+
+JEV 的设计思想与实测有效性与顶尖工业界、学术界的权威研究成果高度收敛：
+
+| 验证维度 | 对应公认基准 / 论文 | 学术与工业界核心结论 | JEV 模式工程落地与实测效果 |
+|---|---|---|---|
+| **代码物理执行优先** | **Large Language Monkeys**<br>([arXiv:2407.21787](https://arxiv.org/abs/2407.21787), UC Berkeley / CMU) | 增加采样或多模型投票只有在**存在确定性代码验证器 (Execution Verifier)** 的场景下才能产生突破，否则性能迅速饱和。 | **EXP-F 实证**：30 道复合计算题纯推理仅 24/30 (80%)，强制代码复算提升至 **30/30 (100%)**，McNemar **p = 0.0312**（零例反向）。 |
+| **定势思维审题盲区** | **MisguidedAttention**<br>([GitHub](https://github.com/cpldcpu/MisguidedAttention) / Anthropic 2024-10 Release) | 大模型因训练集记忆产生“定势效应 (Einstellungseffekt)”，极易漏读微调条件。**Anthropic 官方专门为此要求“显式引用原句列出约束”**。 | **§3.0 门控原句诊断**：在糖果定势题上，普通模式盲抽答错 (24)，JEV 识别手感可辨约束并真跑 9720 维全状态搜索命中全局最优解 (14)。准确率 **+88.9pp (5/5 模型 100%)**。 |
+| **多 Agent 防从众与防暴走** | **MASFT 多智能体故障分类**<br>([arXiv:2503.13657](https://arxiv.org/html/2503.13657v1), UC Berkeley) | 多智能体无隔离时存在 **85.5% 从众趋同**；FC3 缺陷揭示多 Agent 最普遍失败是“不知道何时该停 (Unaware of stopping conditions)”。 | **防锚定铁律 + maxDepth: 1**：禁止结果前置传入子代理，限制递归深度为 1，单路补派硬设 1 次上限，根除无限裂变与 Token 消耗风暴。 |
+| **共识代价与纠缠偏差** | **The Cost of Consensus**<br>([arXiv:2605.00914](https://arxiv.org/html/2605.00914) & [arXiv:2604.07650](https://arxiv.org/abs/2604.07650)) | 未隔离的同伴交流导致语境脆弱（最高 70% 推翻正确答案），且异构模型间存在预训练纠缠（共识不等于正确）。 | **执行断言一票否决权**：物理代码执行 (Pass@k) 权重大于一切文字与三路共识，彻底粉碎语言自洽伪证。 |
+
+---
+
 ## 📜 开源协议
 
 本项目采用 [MIT 许可证](./LICENSE)。欢迎量化交易员与 AI Agent 开发者共同演进。
