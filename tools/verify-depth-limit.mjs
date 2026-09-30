@@ -21,7 +21,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { zstdDecompressSync } from 'node:zlib'
 
-const RUNTIME = 'C:/Users/Yum/.dsh/runtime/dsh-0.1.7-rc.2/node_modules/@deepseek-ai'
+import { runtimeAiBase } from '../runtime-path.mjs'
+
+const RUNTIME = runtimeAiBase()
 const HOME = join(homedir(), '.dsh')
 const SESS_DIR = join(HOME, 'sessions', '--C-Users-Yum--')
 const URL_FILE = join(HOME, 'web-url.txt')

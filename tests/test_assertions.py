@@ -110,5 +110,33 @@ class TestJevAssertions(unittest.TestCase):
         # 缩股价格与成交量反向守恒
         self.assertTrue(assert_reverse_split_volume_factor(0.1, 10.0, 0.1))
 
+    def test_cli_runner(self):
+        import subprocess
+        import json
+        cli_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../packages/assertions/python/jev_assertions/cli.py"))
+        
+        # 1. 测试 --list
+        res = subprocess.run([sys.executable, cli_path, "--list"], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0)
+        data = json.loads(res.stdout)
+        self.assertEqual(data["status"], "ok")
+        self.assertIn("tick_floor", data["assertions"])
+        self.assertIn("ny_open_utc", data["assertions"])
+
+        # 2. 测试正常断言通过
+        payload = json.dumps({"raw_price": 67432.178, "tick_size": 0.01, "expected": "67432.17"})
+        res = subprocess.run([sys.executable, cli_path, "--func", "tick_floor", "--args", payload], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0)
+        data = json.loads(res.stdout)
+        self.assertEqual(data["status"], "pass")
+        self.assertEqual(data["assertion"], "tick_floor")
+
+        # 3. 测试断言失败 (非四舍五入)
+        fail_payload = json.dumps({"raw_price": 67432.178, "tick_size": 0.01, "expected": "67432.18"})
+        res = subprocess.run([sys.executable, cli_path, "--func", "tick_floor", "--args", fail_payload], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 1)
+        data = json.loads(res.stdout)
+        self.assertEqual(data["status"], "fail")
+
 if __name__ == "__main__":
     unittest.main()

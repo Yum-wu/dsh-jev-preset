@@ -6,7 +6,9 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 
-const RUNTIME = 'C:/Users/Yum/.dsh/runtime/dsh-0.1.7-rc.2/node_modules'
+import { runtimeNodeModules } from './runtime-path.mjs'
+
+const RUNTIME = runtimeNodeModules()
 const BUNDLE = 'C:/Users/Yum/Desktop/DeepSeekHarness/plugins/dsh-jev-preset'
 
 const req = createRequire(pathToFileURL(`${RUNTIME}/@deepseek-ai/cordis-plugin-include/lib/index.js`))

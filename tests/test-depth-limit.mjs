@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-const RUNTIME = 'C:/Users/Yum/.dsh/runtime/dsh-0.1.7-rc.2/node_modules/@deepseek-ai'
+import { runtimeAiBase } from '../runtime-path.mjs'
+
+const RUNTIME = runtimeAiBase()
 
 test('DSH 子代理递归阻断与深度限制 (maxDepth=1)', async () => {
   const { resolveChildDepth, SubagentDepthError } = await import(

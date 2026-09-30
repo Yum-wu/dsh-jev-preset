@@ -140,6 +140,16 @@ graph TD
   - `split.py`: 除权除息基准价、前复权对数收益率安全守卫、缩股因子反向守恒
 - `packages/assertions/pwsh/JevAssertions.psm1`: 符合 Windows PowerShell 5.1 / 7 双环境兼容的带 UTF-8 BOM 标准断言模块。
 
+### 命令行一键调用 (Universal CLI Runner)
+通过内置的标准泛化 CLI，可一键验证全部 18 个量化与风控断言：
+```bash
+# 查看所有支持的断言与参数签名
+python packages/assertions/python/jev_assertions/cli.py --list
+
+# 传入 JSON 参数执行断言 (返回标准 JSON 结构，通过 exit 0，未通过 exit 1)
+python packages/assertions/python/jev_assertions/cli.py --func tick_floor --args '{"raw_price": 67432.178, "tick_size": 0.01, "expected": "67432.17"}'
+```
+
 ---
 
 ## 🚀 快速上手与使用
