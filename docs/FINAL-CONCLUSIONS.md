@@ -265,9 +265,9 @@ McNemar p:修复前 1.0 → 修复后 **0.0625**。
 | 项 | 值 |
 |---|---|
 | 仓库 | <https://github.com/Yum-wu/dsh-jev-preset>(Public) |
-| 最新提交 | `9c450d0`(门控改断言优先) |
+| 最新提交 | `95cf2d9`(架构治理: Persona瘦身76% + 断言通用CLI + 运行时解耦) |
 | CI | ✅ **4/4 全绿**(run `36706874661`) |
-| 测试 | node **15/15** + python 5 + **50 用例** + pwsh 断言,全绿 |
+| 测试 | node **15/15** + python **6/6**(含CLI调度测试) + **50 用例** + pwsh 断言,全绿 |
 | 单套题数 | **89 题**(numeric 30 / adversarial 10 / trap 33 / gate 16) |
 
 ### 证据索引
