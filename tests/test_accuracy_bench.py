@@ -257,11 +257,26 @@ class TestSuite(unittest.TestCase):
         self.assertLess(len(overlap), len(a), "门控题完全未参数化,多 seed 合并无意义")
 
     def test_gate_expected_split_is_balanced(self):
-        """门控题必须两类都有,否则 gate_accuracy 无法反映误判方向。"""
-        g = [c for c in build_suite(3) if c["kind"] == "gate"]
-        three = sum(1 for c in g if c["expected"]["expect_three_path"])
-        self.assertGreater(three, 0)
-        self.assertGreater(len(g) - three, 0)
+        """门控题两类都要有,否则 gate_accuracy 无法反映误判方向。
+
+        2026-10-01 更新(附录 A10):旧断言假设 gate 题是「三路/单路各半」,
+        那基于硬编码布尔。现期望由 `expected_gate_route` 从题面复算,
+        比例由题面性质决定(16 条里 14 条可断言 → 单路是多数)。
+        **这里要守的不是「各半」,而是「两类都非空」** ——
+        若某一类为空,误判方向就不可观测(把「总判三路」退化成「总判单路」也不掉分)。
+        """
+        from collections import Counter
+        for seed in (3, 20260928):
+            g = [c for c in build_suite(seed) if c["kind"] == "gate"]
+            dist = Counter(str(c["expected"]["expect_three_path"]) for c in g)
+            with self.subTest(seed=seed):
+                self.assertGreater(dist.get("True", 0), 0, f"seed={seed} 没有期望三路的题")
+                self.assertGreater(dist.get("False", 0), 0, f"seed={seed} 没有期望单路的题")
+                # 不可判定的题必须**显式**存在或有,不得被静默压成 False
+                for c in g:
+                    self.assertIn(c["expected"]["expect_three_path"], (True, False, None))
+                    self.assertTrue(c["expected"].get("expect_reason"),
+                        f"{c['id']} 缺 expect_reason —— 期望值不可审计(A10)")
 
 
 class TestCognitiveTraps(unittest.TestCase):
@@ -534,7 +549,13 @@ class TestGrading(unittest.TestCase):
         self.assertFalse(is_three_path(None))
         # 2026-09-30 门控改「断言优先」后新增的单路标识,不得被误判为三路
         self.assertFalse(is_three_path("断言通过"))
-        self.assertFalse(is_three_path("断言不适用"))
+        # 2026-10-01 修正附录 A3/A4:下面两条原先的期望值是**反的**,
+        # 判分器与本测试一起为错误结论背书,让缺陷活了这么久。
+        #   断言不适用   = 「无法写成可执行断言,已转 ② 三路或换模型」→ 多路(A3)
+        #   单路未验证   = 「仅 1 路可用,无独立交叉验证」→ 单路(A4)
+        # 完整判据见 tests/test_route_classification.py(直接从 persona 原文抽表)。
+        self.assertTrue(is_three_path("断言不适用"))
+        self.assertFalse(is_three_path("单路未验证"))
         self.assertTrue(is_three_path("3/3 Independent Consensus"))
         self.assertTrue(is_three_path("Triggered by Test Failure"))
 
@@ -578,8 +599,22 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(s["C0"]["run_errors"], 1)
         self.assertEqual(s["C3"]["mean_tokens"], 300)
         cmp = compare(graded, "C1", "C3")
-        self.assertEqual((cmp["pairs"], cmp["only_C1_correct"], cmp["only_C3_correct"]), (4, 0, 3))
-        self.assertAlmostEqual(cmp["mcnemar_p"], 0.25)
+        # 2026-10-01 修正(附录 B5,红队 8c9dff71):C1 的 4 条里有 **3 条是 no_answer**
+        # (上面 runs 构造的 "无答案")。R5 要求「没答」与「答错」分开 ——
+        # 若把它们算进一致率,「两边都没答」会被记成「一致」,π 看不见这个失败模式。
+        # 故 compare() 现在剔除 no_answer 对并单列 `no_answer_pairs`。
+        self.assertEqual(cmp["no_answer_pairs"], 3, "C1 的 3 条无答案必须被单列统计(R5)")
+        self.assertEqual(cmp["n_gate_excluded"], 0,
+            "本用例的 runs 里没有 gate 题(只造了 numeric),故剔除数为 0 —— "
+            "该字段的作用是让「π 的覆盖率」可见,不是恒为正")
+        self.assertEqual((cmp["pairs"], cmp["only_C1_correct"], cmp["only_C3_correct"]), (1, 0, 0),
+            "剔除 no_answer 后只剩 1 条正常对,两边都对")
+        self.assertAlmostEqual(cmp["mcnemar_p"], 1.0)   # 无不一致对 → p=1
+        self.assertAlmostEqual(cmp["agreement"], 1.0, places=9)
+        self.assertFalse(cmp["pi_defined"],
+            "仅 1 条且两边都对 → 边际退化,π 未定义,必须报 None 而不是 0.0")
+        self.assertIsNone(cmp["scotts_pi"],
+            "π 未定义时必须是 None —— 报 0.0 会让「最好结果」读起来像「最差」")
         self.assertEqual(len(difficulty_filter(graded, "C1", 0.2, 0.8)), 0)   # 单次重复只有 0/1
         with self.assertRaises(KeyError):
             grade_runs(suite, [{"case_id": "不存在", "config": "C1", "text": ""}])

@@ -95,17 +95,57 @@ Python: `packages/assertions/python/jev_assertions/`
 
 PowerShell: `packages/assertions/pwsh/JevAssertions.psm1` (PS 5.1 / 7, UTF-8 BOM)
 
-Call all 18 assertions from the CLI:
+⚠ **The PS surface and the Python surface are NOT equivalent** (fixed 2026-10-01):
+the Python side has **18** assertions; the PS side has **only 3**
+(`Assert-JevTickFloor` / `Assert-JevTieredMargin` / `Assert-JevSlippageBudget`) —
+**the other 15 assertion kinds do not exist on the PS side**.
+**Prefer the Python CLI below** whenever an assertion can express the check;
+use the PS module only when the environment is PowerShell-only and the
+check is one of those 3 kinds.
 
-```bash
-python packages/assertions/python/jev_assertions/cli.py --list
+Call all 18 assertions from the CLI.
 
-python packages/assertions/python/jev_assertions/cli.py \
-  --func tick_floor \
-  --args '{"raw_price": 67432.178, "tick_size": 0.01, "expected": "67432.17"}'
+⚠ The path below is **relative to the plugin root** and only resolves when the
+current directory is `plugins/dsh-jev-preset/`. Copy-pasting it from the repository
+root (the default session cwd) yields `[Errno 2]`. Locate first:
+
+```powershell
+$JEV = @(Resolve-Path "$env:USERPROFILE\.dsh\profiles\*\node_modules\dsh-jev-preset\packages\assertions\python\jev_assertions\cli.py" -ErrorAction SilentlyContinue | Sort-Object Path)[0].Path
+if (-not (Test-Path $JEV)) { $JEV = @(Get-ChildItem . -Recurse -Depth 5 -Directory -Filter jev_assertions)[0].FullName + '\cli.py' }
+if (-not (Test-Path $JEV)) { throw "assertion library not found ($JEV)" }
 ```
 
-Emits JSON, exit 0 on pass, exit 1 on assertion failure.
+```powershell
+python $JEV --list
+
+python $JEV --func tick_floor --args '{"raw_price": 67432.178, "tick_size": 0.01, "expected": "67432.17"}'
+```
+
+> When `$JEV` is empty you **must** throw first: running `python $JEV --func ...`
+> degrades to `python --func ...`, which reports `unknown option --func` — easily
+> misread as "the assertion actually ran".
+
+**Exit-code contract (three values)**:
+
+| exit | status | meaning | action |
+|---|---|---|---|
+| `0` | `pass` | assertion passed | release the conclusion |
+| `1` | `fail` | assertion ran, **the value is wrong** | do not release; recompute or escalate to 3-way |
+| `2` | `error` | **bad call, nothing ran** (missing `--func` / malformed JSON / parameter mismatch / unknown assertion / internal exception) | **fix the command first, then recompute** |
+| `3` | `insufficient_data` | **input cannot decide** (e.g. not enough order-book depth) | **supply more data, then rerun** — recomputing is pointless |
+
+> exit 2 matters most: no numeric conclusion exists at that point. Treating it as
+> "the assertion rejected my value" fabricates a verification that never happened.
+> exit 3 is the mirror image: the value is not wrong, the input is inadequate —
+> recomputing wastes effort. The contract is locked cell-by-cell by
+> `tests/test_cli_exit_codes.py`
+> (including the invariant `status == "error" ⟺ exit == 2`).
+
+> The PowerShell `Assert-Jev*` module has **only two values** (failure = 1; missing
+> parameter / unknown function also = 1, the PowerShell convention) — no exit 2/3.
+> As noted above, it also exposes **only 3 functions**, far fewer than the 18 on the Python side.
+> On that surface, read the exception text to tell "wrong value" from "bad call";
+> the exit code alone cannot.
 
 ## Defenses that exist (and ones that don't)
 

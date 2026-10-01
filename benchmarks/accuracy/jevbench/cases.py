@@ -7,6 +7,7 @@
 - gate         只检验 JEV 门控是否把任务分到正确路由(不判答案)
 """
 import random
+import re
 from datetime import date, timedelta
 
 from . import solve
@@ -416,13 +417,63 @@ GATE_TEMPLATES = [
                       f"胜率 {r.choice([0.45, 0.55, 0.6])}、盈亏比 {r.choice([1.5, 2, 3])},该下多少比例?给推导。", {})),
     (True, lambda r: (f"跨市场套利:同一 {r.choice(['标的', '合约'])} 在两个交易所价差 "
                       f"{r.choice([0.3, 0.8, 1.5])}%,扣掉双边手续费后还有利润吗?怎么算?", {})),
+    # 措辞中立的**探针题**:刻意不含任何现有信号词(可断言 / 高危 / 知识列举),
+    # 唯一作用是让 `expected_gate_route` 的兜底分支(None)**保持可达**。
+    # 没有它,兜底就是死代码 —— 红队 a0115d91 变体 6 实测:把兜底从 None 改成
+    # True(退回「不知道就默认三路」)时,因题集里 0 条 None,**没有任何测试报红**。
+    # 这题问「还缺哪些信息才够答」,题面本身不带可判定信号。
+    (False, lambda r: (f"评估这只{r.choice(['标的', '合约'])}该不该建仓,"
+                       f"还需要知道哪些信息才够?列出来。", {})),
 ]
 
 
+def expected_gate_route(question: str):
+    """从**题面**复算 gate 题的正确路由 —— gate 期望的唯一真相源。
+
+    为什么需要它(附录 A10,2026-10-01):
+      `GATE_TEMPLATES` 原先给每条模板硬编码一个 `expect_three_path` 布尔。
+      但 persona 的门控早已改成「断言优先」(2026-09-30):可写成可执行断言的题
+      应当**单路 + 真跑复算**,而 persona 明写「严禁派生三路」。
+      于是 8 条「期望三路」的 gate 题里,有 7 条的题面其实**可写成断言**
+      (应开多少张 / 每格价格 / 价差扣费后有无利润 / Kelly 仓位比例 …)。
+      一个严格遵守 persona 的 agent 在这些题上输出 `[JEV: 断言通过]`,
+      会被判 `correct=False` —— 它没做错任何事,只是被**旧口径**判为错。
+
+    判定口径(与 persona §二 逐条对应,不是另立一套):
+      ① 题面可写成可执行断言 → 应**单路**(标识 `断言通过`)
+      ② 不可写成断言(安全 / 并发 / 状态机 / 方案取舍)→ 才可**三路**
+
+    返回 `(expect_three_path: bool, reason: str)`,reason 用于事后审计口径来源。
+    """
+    q = question or ""
+    # §二②:不可断言的硬信号 —— 命中即期望三路(这些题 persona 本来就要求裂变)
+    if re.search(r"防重复|安全吗|签名|secret|asyncio|并发|状态机|怎么设计|取舍", q):
+        return True, "不可写成可执行断言(§二② 安全/并发/状态机/取舍)→ 期望三路"
+    # §二①:可断言的硬信号 —— 命中即期望单路 + 真跑复算
+    if re.search(r"应开多少张|每格价格|第\s*\d+\s*格|价差|利润|该下多少比例|"
+                 r"年化时|给出推导|给推导|怎么算|算错的数值例子|"
+                 r"会导致[^?]{0,20}(?:什么错|错)", q):
+        return False, "可写成可执行断言(§二① 断言优先)→ 期望单路 + 真跑复算"
+    # 纯知识/解释/列举题:没有可执行的唯一数值可复算,但**也不是**高危多路题。
+    # 这类属 §二③ Fast-Pass(低危,单次直出),不是 §二② 的三路。
+    # ⚠ 匹配用**整句形态**而非零散词:「列出 N 个 X」是知识题(单路),
+    #   「还需要知道哪些信息」是探针题(不可判定)。若用 `列` 单字收,
+    #   两者无法区分(初版就因此把 #5 误判为 None)。
+    if re.search(r"翻译|解释|是什么类型|是什么意思|有哪些|哪几种|长什么样|"
+                 r"常用命令|一句话|列举|"
+                 r"列(?:出)?\s*\d+\s*个[^?]{0,30}(?:名称|名字|库|币种)", q):
+        return False, "纯知识/解释/列举题,无可执行断言可复算但非高危(§二③ Fast-Pass)→ 单路直出"
+    # 兜底:题面信号不足时**不猜**。返回 None 让判分显式标 undecidable ——
+    # 宁可「不可判定」也不要「默认为三路」:后者会重演 A10(拿旧口径冒充门控正确性)。
+    return None, "题面信号不足,无法从题面复算 —— 需人工判定(不得默认为三路)"
+
+
 def gen_gate(rng, i):
-    need, fn = GATE_TEMPLATES[i % len(GATE_TEMPLATES)]
+    """gate 期望改为**从题面复算**,不再取模板里的硬编码布尔(附录 A10)。"""
+    _, fn = GATE_TEMPLATES[i % len(GATE_TEMPLATES)]
     q, _ = fn(rng)
-    return q, {"expect_three_path": need}
+    want, reason = expected_gate_route(q)
+    return q, {"expect_three_path": want, "expect_reason": reason}
 
 
 GENERATORS = {

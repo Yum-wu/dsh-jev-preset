@@ -4,7 +4,8 @@
 每个函数只接受字符串/整数入参(与题面展示值一致),避免 float 二次误差。
 """
 from datetime import date, datetime, timedelta
-from decimal import Decimal as D, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, localcontext
+from decimal import (Decimal as D, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP,
+                    DecimalException, localcontext)
 
 
 def tick_round(price: str, tick: str, side: str) -> str:
@@ -94,24 +95,81 @@ def ex_rights(pre_close: str, cash_per10: str, bonus_per10: str, rights_per10: s
 
 
 def cagr(start_equity: str, end_equity: str, start_day: str, end_day: str) -> str:
-    """年化收益率(%) = ((期末/期初)^(365/自然日数) - 1) * 100,四舍五入到 0.01。"""
-    days = (date.fromisoformat(end_day) - date.fromisoformat(start_day)).days
+    """年化收益率(%) = ((期末/期初)^(365/自然日数) - 1) * 100,四舍五入到 0.01。
+
+    ⚠ 2026-10-01 修正(附录 B1),**且原说明是错的,一并更正**(红队 6c40869b 实测):
+
+      ❌ 原注释说「`Decimal.exp()` 越界」—— **机制描述错误**。
+         `Decimal` 的默认 `Emax = 999999`,`exp()` 实际上**从不溢出**。
+         实测:days=2 时 `exp()` 正常返回 40 位有效数字,days=1 才炸。
+         真正抛 `InvalidOperation` 的是 **`quantize`** ——
+         在 `ctx.prec = 40` 下,当结果需要**超过 40 位有效数字**时,`quantize` 抛错。
+
+      ❌ 原注释说「区间过短(days<10)导致年化溢出」—— **边界划错了**。
+         边界由**结果的数字位数**决定,与 `days` 无关。
+         反例(红队实测):days=1 但 ratio=1.0001 时,**不抛错**,静默返回 `3.72`。
+
+      ✅ 现在的说法:当结果位数超过 `prec` 时抛错,收口成可读的 `ValueError`。
+         异常类型从 `InvalidOperation`(信息量为零)变为可读错误,
+         这一点是真实改进。
+
+    价值声明(必须诚实 —— 红队 R13 实测):
+      出题器 `cases.py:118-119` 用 `randint(120, 1800)` 生成天数,
+      **真跑 0/1200 题命中本函数的任何异常路径**。
+      所以本函数是 cagr 题的判分基准这一点**不构成本次修改的理由** ——
+      它是**防御性**改进,对已确立结论(24/30→30/30 等)零影响。
+    """
+    d0 = date.fromisoformat(start_day)
+    d1 = date.fromisoformat(end_day)
+    days = (d1 - d0).days
+    if days <= 0:
+        raise ValueError(
+            f"cagr: 区间非法(end_day={end_day} 未晚于 start_day={start_day},days={days});"
+            f"年化需要至少 1 天")
+    if D(start_equity) == 0:
+        raise ValueError(f"cagr: 期初权益为 0,比值无定义")
     with localcontext() as ctx:
         ctx.prec = 40
-        ratio = D(end_equity) / D(start_equity)
-        g = (ratio.ln() * D(365) / D(days)).exp() - 1
-        return str((g * 100).quantize(D("0.01"), rounding=ROUND_HALF_UP))
+        # ⚠ 整段算术都在 try 内:Decimal 的 InvalidOperation 既可能来自 ln()/exp(),
+        #    也可能在 `localcontext` 退出时做精度校验时抛出(初版只包住 exp(),
+        #    异常从 ctx 边界直接穿透 —— **以为捕到了,其实没捕到**)。
+        try:
+            ratio = D(end_equity) / D(start_equity)
+            if ratio <= 0:
+                raise ValueError(f"cagr: 期末/期初 = {ratio} 非正,对数无定义")
+            g = (ratio.ln() * D(365) / D(days)).exp() - 1
+            return str((g * 100).quantize(D("0.01"), rounding=ROUND_HALF_UP))
+        except (DecimalException, OverflowError, ArithmeticError) as e:
+            # 真正触发点是 quantize:结果位数超过 ctx.prec(40)时抛 InvalidOperation。
+            # (初版注释归因于 exp() 越界,机制错误,已更正 —— 见 docstring。)
+            raise ValueError(
+                f"cagr: 结果位数超过 Decimal 精度(prec=40);"
+                f"days={days},期末/期初={ratio} 时年化会达到 1e20 量级,不适合该口径") from e
 
 
 def max_drawdown(equity: list) -> dict:
     """最大回撤(%) = max((峰值 - 其后谷值)/峰值) * 100,四舍五入到 0.01;
-    peak/trough 为 0 基下标;多个相同最大回撤取最早出现者。"""
+    peak/trough 为 0 基下标;多个相同最大回撤取最早出现者。
+
+    ⚠ 2026-10-01 修正(附录 B1):原实现对**空序列**静默返回
+    `{"mdd_pct": "0.00", "peak_index": 0, "trough_index": 0}`。
+    那是**凭空捏造的答案** ——「没有数据」被读成「没有回撤」,而且下标 0 指向不存在的元素。
+    由于本函数是 mdd 题的**判分基准**,静默错值会让整批题判错却无人察觉
+    (selftest 只验「参考答案与作答一致」,参考答案自己错了也照样全绿)。
+    现改为显式抛错:调用方必须决定空序列怎么办,不能默认「回撤为 0」。
+    """
+    if not equity:
+        raise ValueError("max_drawdown: equity 序列为空,无法定义回撤(需要至少 1 个点)")
     best, best_peak, best_trough = D(0), 0, 0
     peak_i = 0
     for i, v in enumerate(equity):
         v = D(v)
         if v > D(equity[peak_i]):
             peak_i = i
+        if D(equity[peak_i]) == 0:
+            # 峰值为 0 时回撤无定义(0/0)。显式失败,不让它变成一个看似正常的数字。
+            raise ValueError(
+                f"max_drawdown: 峰值下标 {peak_i} 的净值为 0,回撤无定义")
         dd = (D(equity[peak_i]) - v) / D(equity[peak_i])
         if dd > best:
             best, best_peak, best_trough = dd, peak_i, i

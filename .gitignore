@@ -39,3 +39,7 @@ benchmarks/accuracy/_probe_*
 # - 含 timestamp 与 avg/p99_latency_ms,每次 `npm test` 都变 → 跟踪它会让工作树永远为脏
 # - 关键结论(成功率、断路器触发次数、角色去重)已摘录进 docs/ 与测试断言
 docs/orchestration-benchmark.json
+
+# 红队复算遗留目录(Round 17 起):整树副本,含 pristine/lab/audit.py/mutate.py。
+# 只忽略、不删除 —— 删除涉 R15 红线,需用户批准。
+tmp_jev_path1/

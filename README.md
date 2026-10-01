@@ -96,17 +96,49 @@ Python：`packages/assertions/python/jev_assertions/`
 
 PowerShell：`packages/assertions/pwsh/JevAssertions.psm1`（兼容 PS 5.1 / 7，带 UTF-8 BOM）
 
-命令行直接调用全部 18 个断言：
+⚠ **PS 面与 Python 面能力不对等，不要当成同一套用**（2026-10-01 修）：
+Python 面 **18 个**断言，PS 面**只有 3 个**（`Assert-JevTickFloor` /
+`Assert-JevTieredMargin` / `Assert-JevSlippageBudget`）——**其余 15 类判定在 PS 上不存在**。
+**能用断言判的量化结论，一律优先走下面的 Python CLI**；PS 面只在
+「环境确实只有 PowerShell 且只需这 3 类判定」时用。
 
-```bash
-python packages/assertions/python/jev_assertions/cli.py --list
+命令行直接调用全部 18 个断言。
 
-python packages/assertions/python/jev_assertions/cli.py \
-  --func tick_floor \
-  --args '{"raw_price": 67432.178, "tick_size": 0.01, "expected": "67432.17"}'
+⚠ 下面两条路径是**相对插件根目录**的，只在 `plugins/dsh-jev-preset/` 下成立。
+在仓库根（默认会话 cwd）直接照抄会得到 `[Errno 2]`。先定位再用：
+
+```powershell
+$JEV = @(Resolve-Path "$env:USERPROFILE\.dsh\profiles\*\node_modules\dsh-jev-preset\packages\assertions\python\jev_assertions\cli.py" -ErrorAction SilentlyContinue | Sort-Object Path)[0].Path
+if (-not (Test-Path $JEV)) { $JEV = @(Get-ChildItem . -Recurse -Depth 5 -Directory -Filter jev_assertions)[0].FullName + '\cli.py' }
+if (-not (Test-Path $JEV)) { throw "断言库未找到($JEV)" }
 ```
 
-输出 JSON，通过 exit 0，断言失败 exit 1。
+```powershell
+python $JEV --list
+
+python $JEV --func tick_floor --args '{"raw_price": 67432.178, "tick_size": 0.01, "expected": "67432.17"}'
+```
+
+> `$JEV` 为空时**必须先 throw**：直接跑 `python $JEV --func ...` 会退化成
+> `python --func ...`，报 `unknown option --func` —— 极易被误读为「已执行过」。
+
+输出 JSON。**退出码契约（三值）**：
+
+| exit | status | 含义 | 处置 |
+|---|---|---|---|
+| `0` | `pass` | 断言通过 | 放行 |
+| `1` | `fail` | 断言跑了，**答案错** | 结论不放行，重算或升级三路 |
+| `2` | `error` | **调用错，根本没跑**（缺 `--func` / 坏 JSON / 参数不匹配 / 未知断言名 / 断言内部异常） | **先修命令再重算** |
+| `3` | `insufficient_data` | **输入不足以判定**（如订单簿深度不够） | **补数据再跑**，重算无意义 |
+
+> exit 2 尤其重要：此时不存在任何数值结论。若把它误当成「断言否定结论」，
+> 等于伪造一次从未发生的验证。exit 3 则相反：不是模型算错，是输入不够 ——
+> 对它重算是白费力气。该契约由 `tests/test_cli_exit_codes.py` 逐格锁定
+> （含不变式 `status == "error" ⟺ exit == 2`）。
+
+> PowerShell 的 `Assert-Jev*` **只有两值**（不通过 = 1，缺参数/未知函数也 = 1），
+> 没有 exit 2/3。用 PS 面时须看异常文本判断成因，不能只看退出码。
+> 且如上所述，PS 面**只有 3 个函数**，覆盖面远小于 Python 面的 18 个。
 
 ## 已落实的防线（和没有的）
 

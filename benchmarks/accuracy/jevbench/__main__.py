@@ -18,9 +18,21 @@ from .grading import compare, difficulty_filter, grade_case, grade_runs, load_js
 
 
 def _perturb(case: dict) -> str:
-    """把参考答案的第一个字段改错(数值 +1 / 布尔取反 / 字符串加后缀),用于反向自检。"""
+    """把参考答案的第一个字段改错(数值 +1 / 布尔取反 / 字符串加后缀),用于反向自检。
+
+    2026-10-01 修正(附录 A10):gate 分支原先与 `reference_text` 的分支**正好相反** ——
+    `reference_text` 是「期望三路 → 3/3」,这里却是「期望三路 → Fast-Pass」。
+    两处不一致时,扰动样本可能**恰好等于**参考答案,反向自检形同虚设。
+    现在统一:扰动 = 参考答案的**相反**路由,且与 `reference_text` 同一套三值逻辑。
+    """
     if case["kind"] == "gate":
-        route = "Fast-Pass" if case["expected"]["expect_three_path"] else "3/3 Independent Consensus"
+        want = case["expected"].get("expect_three_path")
+        if want is True:
+            route = "断言通过"          # 期望三路 → 扰动成单路(错)
+        elif want is False:
+            route = "3/3 Independent Consensus"  # 期望单路 → 扰动成三路(错)
+        else:
+            return ""                    # 不可判定:造不出合法扰动(见 reference_text)
         return f"[JEV: {route}]\n扰动"
     body = dict(case["expected"])
     key = next(iter(body))
@@ -40,7 +52,13 @@ def _perturb(case: dict) -> str:
 
 def cmd_selftest(suite: list) -> int:
     bad = []
+    undecidable = 0
     for c in suite:
+        if c["kind"] == "gate" and c["expected"].get("expect_three_path") is None:
+            # 口径不明的题**没有**合法参考答案(见 reference_text),不参与对错自检,
+            # 但必须计数并显式报告 —— 否则「不可判定」就变成了「悄悄不算」。
+            undecidable += 1
+            continue
         if not grade_case(c, reference_text(c))["correct"]:
             bad.append(f"参考答案被判错: {c['id']}")
         if grade_case(c, _perturb(c))["correct"]:
@@ -49,6 +67,8 @@ def cmd_selftest(suite: list) -> int:
         bad.append("缺答案块被判对")
     for b in bad:
         print("FAIL", b)
+    if undecidable:
+        print(f"提示: {undecidable} 条 gate 题口径不可判定(expect_three_path=None),已跳过对错自检。")
     print(f"selftest: {len(suite)} 题,{'全部通过' if not bad else f'{len(bad)} 项失败'}")
     return 1 if bad else 0
 

@@ -12,7 +12,11 @@ import { join } from 'node:path'
 
 const HOME = join(homedir(), '.dsh')
 const URL_FILE = join(HOME, 'web-url.txt')
-const STATE_FILE = join(HOME, 'jev-session-test', 'active-long-goal.json')
+// 新状态档案优先;旧文件名保留为回退(2026-09-28 版 launch 脚本写的)。
+const STATE_CANDIDATES = [
+  join(HOME, 'jev-session-test', 'active-self-optimize-goal.json'),
+  join(HOME, 'jev-session-test', 'active-long-goal.json'),
+]
 
 function readBase() {
   const text = readFileSync(URL_FILE, 'utf8')
@@ -40,11 +44,12 @@ async function rpc(origin, cookie, endpoint, args = {}) {
 }
 
 async function main() {
-  if (!existsSync(STATE_FILE)) {
+  const statePath = STATE_CANDIDATES.find(p => existsSync(p))
+  if (!statePath) {
     console.log('未找到活跃的长程任务记录。')
     return
   }
-  const meta = JSON.parse(readFileSync(STATE_FILE, 'utf8'))
+  const meta = JSON.parse(readFileSync(statePath, 'utf8'))
   const { origin, token } = readBase()
   const cookie = await authenticate(origin, token)
 
@@ -55,7 +60,21 @@ async function main() {
   console.log(`\n=== JEV 长程会话巡检 [${new Date().toLocaleTimeString()}] ===`)
   console.log(`会话 ID: ${sessionId}`)
   console.log(`运行预设: ${meta.preset}`)
-  console.log(`开始时间: ${meta.startedAt} (已运行 ${elapsedMinutes} 分钟，设定下限: ${meta.minDurationHours} 小时)`)
+  console.log(`开始时间: ${meta.startedAt} (已运行 ${elapsedMinutes} 分钟)`)
+
+  // goal 状态(轮次是"这循环有没有在动"的唯一客观判据,不靠文本猜)。
+  try {
+    const goal = await rpc(origin, cookie, 'goals/get', { agentId: sessionId })
+    if (goal) {
+      console.log(`目标状态: phase=${goal.phase} activation=${goal.activation} `
+        + `轮次=${goal.roundsStarted}/${goal.maxGoalRounds}`
+        + (goal.blockedReason ? ` blocker=${goal.blockedReason.code}` : ''))
+    } else {
+      console.log('目标状态: 无 goal(未下发,或已被 clear/complete)')
+    }
+  } catch (e) {
+    console.log(`目标状态: 查询失败(${e.message})`)
+  }
 
   const proj = await rpc(origin, cookie, 'session/projections', { request: { sessionId } })
   const stats = proj?.values?.sessionStats
