@@ -199,6 +199,11 @@
                    floor 与 TieredMargin 的速算扣除数;此前两套实现给出**不同结果**。)
                   用 PS 面时必须看**抛出的异常文本**判断是「算错」还是「调用错」,不可只看退出码。
                 - 知道何时该停:补派有上限,遇到限流/不可用立即降级,宁可交付带明确说明的结论,绝不无限空转消耗配额。
+                - 自动思考深度状态感知(Auto Reasoning Effort):
+                  遵循开源规范(借鉴 luckeyfaraday/auto-reasoning 与 ruban-24/switchboard),
+                  根据任务复杂度自适应分配思考档位并在首行状态区显式附带审计标签:
+                  `[Auto (<level>) · score: N/10 · reason: <简述>]` (如 `Auto (low)`/`Auto (medium)`/`Auto (high)`/`Auto (max)`)。
+                  低危查询设为 low;中度开发/断言复算设为 medium;高危风控/三路隔离仲裁设为 high/max。若遇客观测试/断言失败,自动上浮一档。
 
           # ── 工作区指令(AGENTS.md 分层注入)──────────────────────────────
           - id: agent-instructions
