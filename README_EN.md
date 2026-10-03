@@ -237,7 +237,7 @@ The four statistics in `benchmarks/run_stress_matrix.py` currently return `None`
 
 ## Acknowledgements & Prior Art
 
-This preset's automatic reasoning effort tiering and dynamic statusline display are inspired by and build upon concepts from the open-source community:
+This preset originally asked the model to self-report an `Auto (<level>)` audit label in the persona. **That instruction was removed on 2026-10-04**: the label was the model's guess, not the real tier (measured over 12 turns: 4 tier disagreements, 11/12 claimed `low`). The tiering now lives in a separate plugin, `dsh-plugin-codemode` (local `Desktop/dsh-plugin-codemode`, not in this repo), which computes it deterministically on the `agent/request` event and rewrites the request; the real level is shown in the Auto pill below the composer and readable via `GET /api/codemode.auto-effort`. The design below those sources came from:
 
 - **[luckeyfaraday/auto-reasoning](https://github.com/luckeyfaraday/auto-reasoning)** (MIT License): Architecture for deterministic task complexity scoring, zero-model-drift effort tiering, and auditable escalation logs (`classified` / `effort_selected` / `effort_escalated`).
 - **[ruban-24/switchboard](https://github.com/ruban-24/switchboard)** (MIT License): Concepts of dynamic model and effort tiering along with session-level `Auto (<level>)` (`Auto (low)`, `Auto (medium)`, `Auto (high)`, `Auto (max)`) routing convention.

@@ -169,7 +169,7 @@ npm run validate      # 校验 cordis.patch.yml 编排规范
 
 ## 💡 开源致谢与前沿借鉴 (Acknowledgements & Prior Art)
 
-本预设的自动化思考深度调节（Auto Reasoning Effort）与动态状态标识设计，深受业界前沿开源实践启发并严格遵循其开源协议进行融合设计：
+本预设早期把「自动化思考深度调节（Auto Reasoning Effort）」写进了 persona，要求模型自己在回复首行报一个 `Auto (<level>)` 审计标签。**2026-10-04 已删除该段**：标签是模型自估的，与真实档位无关（实测 12 轮里 4 轮档位不一致，11/12 一律说 `low`）。调节逻辑现由独立插件 `dsh-plugin-codemode`（本机 `Desktop/dsh-plugin-codemode`，不在本仓）在 `agent/request` 上**确定性算出并改写**，真实档位显示在输入框下方的 Auto 胶囊，可经 `GET /api/codemode.auto-effort` 读取。下列开源项目是该插件的设计来源：
 
 - **[luckeyfaraday/auto-reasoning](https://github.com/luckeyfaraday/auto-reasoning)** (MIT License): 借鉴了面向 Agentic AI 任务的确定性复杂度计分、固定模型防漂移阶梯以及全链路可追溯的审计事件流（`classified` / `effort_selected` / `effort_escalated`）设计思想。
 - **[ruban-24/switchboard](https://github.com/ruban-24/switchboard)** (MIT License): 借鉴了模型/思考度动态路由体系以及会话级 `Auto (<level>)`（如 `Auto (low)`、`Auto (medium)`、`Auto (high)`、`Auto (max)`）的状态感知表示约定。
