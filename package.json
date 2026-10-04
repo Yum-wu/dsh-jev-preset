@@ -5,7 +5,7 @@
   "type": "module",
   "main": "validate.mjs",
   "scripts": {
-    "test": "node --test tests/test-*.mjs && python tests/test_assertions.py && python tests/test_cli_exit_codes.py && python tests/test_cli_reachability.py && python tests/test_arithmetic_input_domain.py && python tests/test_evasion_audit.py && python tests/test_no_encoding_damage.py && python tests/test_ps_python_parity.py && python tests/test_path_spelling.py && python tests/test_route_classification.py && python tests/test_means_markers.py && python tests/test_emission_cap.py && python tests/test_gate_expectation.py && python tests/test_no_unsupported_claims.py && python tests/test_grader_agreement.py && python tests/test_pass_k.py && python tests/test_baseline_arm_honesty.py && python tests/test_handwritten_solvers.py && python tests/test_assertions_reverse.py && python tests/test_guardrails.py && python tests/test_accuracy_bench.py && pwsh -NoProfile -File tests/test_pwsh_assertions.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tests/test_pwsh_assertions.ps1",
+    "test": "node --test tests/test-*.mjs && python tests/test_assertions.py && python tests/test_cli_exit_codes.py && python tests/test_cli_reachability.py && python tests/test_arithmetic_input_domain.py && python tests/test_evasion_audit.py && python tests/test_mutation_harness.py && python tests/test_pareto_report.py && python tests/test_seed_structure.py && python tests/test_no_encoding_damage.py && python tests/test_no_duplicate_dict_keys.py && python tests/test_fs_walkers_are_pruned.py && python tests/test_no_phantom_controls.py && python tests/test_no_silent_skips.py && python tests/test_g_check_actually_ran.py && python tests/test_meta_criteria_bind_to_names.py && python tests/test_ps_python_parity.py && python tests/test_path_spelling.py && python tests/test_route_classification.py && python tests/test_means_markers.py && python tests/test_emission_cap.py && python tests/test_gate_expectation.py && python tests/test_gate_no_route_evidence.py && python tests/test_tool_stdout_encoding.py && python tests/test_appendix_status_table.py && python tests/test_markdown_tables.py && python tests/test_rounds_doc_snapshot.py && python tests/test_small_sample.py && python tests/test_no_unsupported_claims.py && python tests/test_grader_agreement.py && python tests/test_pass_k.py && python tests/test_baseline_arm_honesty.py && python tests/test_handwritten_solvers.py && python tests/test_assertions_reverse.py && python tests/test_guardrails.py && python tests/test_accuracy_bench.py && pwsh -NoProfile -File tests/test_pwsh_assertions.ps1 && powershell -NoProfile -ExecutionPolicy Bypass -File tests/test_pwsh_assertions.ps1",
     "test:accuracy": "python tests/test_accuracy_bench.py",
     "test:unit": "node --test tests/test-*.mjs",
     "test:assertions": "python tests/test_assertions.py",
@@ -16,6 +16,8 @@
     "test:means": "python tests/test_means_markers.py",
     "test:cap": "python tests/test_emission_cap.py",
     "test:gate": "python tests/test_gate_expectation.py",
+    "test:gate-evidence": "python tests/test_gate_no_route_evidence.py",
+    "test:tool-encoding": "python tests/test_tool_stdout_encoding.py",
     "test:claims": "python tests/test_no_unsupported_claims.py",
     "test:agreement": "python tests/test_grader_agreement.py",
     "test:passk": "python tests/test_pass_k.py",
@@ -25,6 +27,7 @@
     "test:guardrails": "python tests/test_guardrails.py",
     "test:evasion": "python tests/test_evasion_audit.py",
     "test:spelling": "python tests/test_path_spelling.py",
+    "test:pareto": "python tests/test_pareto_report.py",
     "audit:evasion": "python tools/evasion_audit.py",
     "test:mutation": "python tests/mutate_guardrails.py",
     "test:parity": "python tests/test_ps_python_parity.py",
@@ -33,7 +36,12 @@
     "test:benchmark": "python benchmarks/run_stress_matrix.py",
     "validate": "node validate.mjs",
     "goal:dry-run": "node tools/launch-long-goal.mjs --dry-run",
-    "goal:monitor": "node tools/monitor-long-goal.mjs"
+    "goal:monitor": "node tools/monitor-long-goal.mjs",
+    "test:appendix": "python tests/test_appendix_status_table.py",
+    "test:small-sample": "python tests/test_small_sample.py",
+    "test:rounds-doc": "python -X utf8 -B tests/test_rounds_doc_snapshot.py",
+    "test:dup-keys": "python -X utf8 -B tests/test_no_duplicate_dict_keys.py",
+    "test:no-skips": "python -X utf8 -B tests/test_no_silent_skips.py"
   },
   "dsh": {
     "bundle": {

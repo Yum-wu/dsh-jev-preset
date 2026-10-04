@@ -68,7 +68,7 @@ class TestNoUnsupportedEffectNumbers(unittest.TestCase):
             "personaPrefix 截断越界,把 YAML 注释吞进来了")
 
     def test_T1_effect_numbers_carry_baseline(self):
-        """效果数字必须带基线与样本量,不得只报终值。
+        r"""效果数字必须带基线与样本量,不得只报终值。
 
         「正确率 100%」缺基线 = 抹掉 80% 的起点 = R13 形态(指标写成好看的样子)。
 

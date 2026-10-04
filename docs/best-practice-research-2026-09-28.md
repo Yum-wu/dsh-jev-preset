@@ -70,7 +70,7 @@ python -c "import json,io; d=json.load(io.open('benchmarks/benchmark-results.jso
 
 | 原宣称 | 真相 | 核查方法 |
 |---|---|---|
-| README §防线 3:「**断路器与自适应退避**…建立三态断路器」 | `JevCircuitBreaker` **只存在于 `tests/`**,从未接入 `cordis.patch.yml` | `Select-String -Path cordis.patch.yml -Pattern 'CircuitBreaker\|断路器'` → **0 匹配** |
+| README §防线 3:「**断路器与自适应退避**…建立三态断路器」 | `JevCircuitBreaker` **只存在于 `tests/`**,从未接入 `cordis.patch.yml` | `Select-String -Path cordis.patch.yml -Pattern 'CircuitBreaker\&#124;断路器'` → **0 匹配** |
 | README §防线 4:「**角色互斥锁**…彻底消除同角色重复派发」 | `JevRoleRegistry` 同上,**全仓 0 处 import** | `Select-String -Path *.mjs,tools/*.mjs -Pattern 'JevRoleRegistry'` → **0 匹配** |
 
 **性质**:属生产实践指南定义的 **Verification Theater(验证剧场)** ——

@@ -167,16 +167,99 @@ class TestPsPythonParityClaim(unittest.TestCase):
                     text, r"(不对等|不等效|NOT equivalent|NOT the same)",
                     f"{name} 必须**明确**写出 PS 面与 Python 面能力不对等 —— "
                     f"只列两处路径而不点破差异,读者仍会以为覆盖面等同")
-        """PS 模块必须有一份被 `npm test` 调用的测试 —— 否则 PS 侧改动无人验证。"""
+
+    def test_D5_readme_defenses_section_is_not_stale(self):
+        """★ README 的「已落实的防线(和没有的)」两栏曾经落后 20 轮。
+
+        Round 1–38 建了护栏补测 / 退出码契约 / CLI 可达性 / 输入域 / 跨实现一致 /
+        变异基础设施 / G5 链 / 双 PS 版本入 CI 等 9 条,那一栏**一条都没写**。
+        失真的原因不是忘了写,是**没有任何测试会去看它**。
+
+        本项要求:两栏必须存在,且「没有的」一栏必须**明确列出几条当前已知的未修缺陷** ——
+        否则「没有的」会退化成一句客套话,读者默认「该有的都有」。
+        """
+        import json as _json
+        py, ps = py_list_count(), len(ps_exports())
+        # ⚠ Round 40 连续三次自查才把这个判据修对,逐条记:
+        #   ① 用 text.lower() 却拿大写「Absent」去比 —— 永远匹配不上;
+        #   ② 用 name.endswith(".md") 区分中英文 —— `README_EN.md` 也以 .md 结尾,
+        #      于是拿中文关键词去搜英文文档;
+        #   ③ 用「没有的」定位栏目边界 —— 但「没有的」出现在**标题**「已落实的防线(和没有的)」里,
+        #      find() 命中的是标题,导致 present_section 把全部条目都排除了。
+        #      改用**只在 absent 栏正文出现**的标志:「别当成有」/「do not assume otherwise」。
+        for name, absent_marker, keywords in (
+            ("README.md", "别当成有", ("护栏", "变异", "规避")),
+            ("README_EN.md", "do not assume otherwise", ("guardrail", "mutation", "evasion")),
+        ):
+            with self.subTest(文档=name):
+                path = os.path.join(ROOT, name)
+                text = open(path, encoding="utf-8").read()
+                low = text.lower()
+                m_absent = low.find(absent_marker)
+                self.assertGreater(m_absent, 0,
+                                   f"{name} 找不到「{absent_marker}」—— 「没有的」一栏可能被删了,"
+                                   f"读者会默认该有的都有")
+                present_section = low[:m_absent]
+                for kw in keywords:
+                    self.assertIn(kw.lower(), present_section,
+                                  f"{name} 的「已落实」栏(而非全文)没有提到「{kw}」相关成果 —— "
+                                  f"该栏可能已过期(它曾整整落后 20 轮)")
+                n_present = present_section.count("- **")
+                n_absent = low[m_absent:].count("- **")
+                self.assertGreaterEqual(
+                    n_present, 5,
+                    f"{name}「已落实」栏只有 {n_present} 条条目 —— 若刚更新过,不该这么少")
+                self.assertGreaterEqual(
+                    n_absent, 4,
+                    f"{name}「没有的」栏只有 {n_absent} 条 —— 它若退化成一句客套话,"
+                    f"读者会默认「该有的都有」,而这正是它历史上发生过的退化")
+                # 数量声明不能因为这次编辑而丢失(D4 覆盖的同一事实)
+                self.assertIn(str(py), text)
+                self.assertIn(str(ps), text)
+
+    def test_D3_ps_module_is_actually_covered_by_a_test(self):
+        """PS 模块必须有一份被 `npm test` 调用的测试 —— 否则 PS 侧改动无人验证。
+
+        ⚠ Round 38 修红队 2a1f0ee 的一条:初版这里断言
+          `assertIn("BOM", <ps1 内容>)` —— **只查「BOM」这个词出现过**。
+          把 BOM 自检整段删掉、只留一句提到 BOM 的注释就能通过,判别力为 0。
+          现改为:**真的把 ps1 跑起来并断言 exit 0** ——
+          「PS 侧真的能跑通」只有真跑才能证明,词出现证明不了。
+        """
         import json as _json
         pkg = _json.load(open(os.path.join(ROOT, "package.json"), encoding="utf-8"))
         self.assertIn("test_pwsh_assertions.ps1", pkg["scripts"]["test"],
                       "PS 测试未挂进 `npm test` —— PS 侧改动默认回归看不到"
                       "(Round 30 已挂,若被摘掉说明是有人认为它不需要跑)")
-        self.assertIn("BOM", open(os.path.join(HERE, "test_pwsh_assertions.ps1"),
-                                   encoding="utf-8").read(),
-                      "PS 测试必须含 BOM 自检:无 BOM 时 PS5.1 把中文读成乱码,"
-                      "而 PS7 完全正常 —— 只测 PS7 会漏掉整类事故(Round 30 实测)")
+
+        ps1 = os.path.join(HERE, "test_pwsh_assertions.ps1")
+        # ⚠ Round 41 补 PS5.1(红队 91faf08d):C0 那条 BOM 自检的**全部动机**是
+        #   「PS5.1 按 ANSI 读中文会乱码,而 PS7 完全正常」,可我原先只跑 `pwsh` ——
+        #   即**恰好在唯一能发现该事故的缺席**。红队实测:剥掉 BOM 后
+        #   PS7 只红 1 项、PS5.1 红 6 项(乱码让 MustContain 字面量失效,
+        #   把真功能 FAIL 伪装成「消息不匹配」)。故两版都必须真跑。
+        interpreters = [("pwsh", ["-NoProfile", "-File", ps1])]
+        if sys.platform == "win32":
+            ps51 = os.path.join(os.environ.get("WINDIR", r"C:\Windows"),
+                                 "System32", "WindowsPowerShell", "v1.0",
+                                 "powershell.exe")
+            if os.path.exists(ps51):
+                interpreters.append(
+                    ("powershell(5.1)",
+                     ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1]))
+            else:
+                self.skipTest("本机找不到 PS5.1 —— C0 的主要防护对象缺席")
+        for label, argv in interpreters:
+            with self.subTest(解释器=label):
+                r = subprocess.run([label.split("(")[0] if "(" in label else label]
+                                   + argv[1:], capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", cwd=ROOT)
+                out = (r.stdout or "") + (r.stderr or "")
+                self.assertEqual(r.returncode, 0,
+                                 f"{label} 下 PS 测试实跑未通过(exit={r.returncode}):\n{out[-800:]}")
+                self.assertIn("BOM", out,
+                              f"{label} 输出里应出现 BOM 自检的结果行 —— "
+                              f"删掉自检只留字面量也算过")
 
 
 if __name__ == "__main__":

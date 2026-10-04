@@ -164,11 +164,26 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
-    # Windows 控制台/CI 默认 stdout 编码为 cp1252,中文 print 直接抛 UnicodeEncodeError。
-    # 与 benchmarks/run_stress_matrix.py 同一处理:强制 UTF-8。
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        import io
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    # 强制 UTF-8:Windows 默认 stdout/stderr 是 cp936(gbk),**重定向/管道**时中文变乱码,
+    # 而本仓文本产物一律 UTF-8 —— 第三方 `> out.txt` 后按 UTF-8 读只会得到乱码。
+    # 三条约束(都由实测逼出来):
+    #   ① **stdout 与 stderr 都要改** —— 异常路径的 traceback 同样会被重定向进文件;
+    #   ② 必须容忍 `sys.stdout is None`(pythonw / GUI 宿主)—— 否则兜底分支自己会二次崩溃;
+    #   ③ 兜底用 `getattr(_s, 'buffer', None)`,不直接取 `.buffer`。
+    # 守卫:tests/test_tool_stdout_encoding.py
+    # 包在 `__main__` 里:否则**被 import 时**会改写调用方的 stdout/stderr 编码
+    # (红队 `77ed8102` 实测:`import tools.evasion_audit` 会把调用方的 latin-1 强制改成 utf-8)。
+    if __name__ == "__main__":
+        for _name in ("stdout", "stderr"):
+            _s = getattr(sys, _name, None)
+            if _s is None:
+                continue
+            try:
+                _s.reconfigure(encoding="utf-8")
+            except Exception:                   # pragma: no cover - 兜底老解释器
+                import io
+                _buf = getattr(_s, "buffer", None)
+                if _buf is not None:
+                    setattr(sys, _name, io.TextIOWrapper(_buf, encoding="utf-8"))
+        del _name, _s
     sys.exit(main())

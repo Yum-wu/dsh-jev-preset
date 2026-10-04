@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+r"""
 B3:无 pass^k / 稳定性指标 —— 所有实验都是单次运行,只报 pass@1。
 
 缺口(附录 B3,依据 Anthropic《Demystifying evals》):

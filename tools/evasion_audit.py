@@ -27,8 +27,33 @@ import hashlib
 import json
 import os
 import re
+import io
+import subprocess
 import sys
 import time
+
+# 强制 UTF-8:Windows 默认 stdout/stderr 是 cp936(gbk),**重定向/管道**时中文变乱码,
+# 而本仓文本产物一律 UTF-8 —— 第三方 `> out.txt` 后按 UTF-8 读只会得到乱码。
+# 三条约束(都由实测逼出来):
+#   ① **stdout 与 stderr 都要改** —— 异常路径的 traceback 同样会被重定向进文件;
+#   ② 必须容忍 `sys.stdout is None`(pythonw / GUI 宿主)—— 否则兜底分支自己会二次崩溃;
+#   ③ 兜底用 `getattr(_s, 'buffer', None)`,不直接取 `.buffer`。
+# 守卫:tests/test_tool_stdout_encoding.py
+# 包在 `__main__` 里:否则**被 import 时**会改写调用方的 stdout/stderr 编码
+# (红队 `77ed8102` 实测:`import tools.evasion_audit` 会把调用方的 latin-1 强制改成 utf-8)。
+if __name__ == "__main__":
+    for _name in ("stdout", "stderr"):
+        _s = getattr(sys, _name, None)
+        if _s is None:
+            continue
+        try:
+            _s.reconfigure(encoding="utf-8")
+        except Exception:                   # pragma: no cover - 兜底老解释器
+            import io
+            _buf = getattr(_s, "buffer", None)
+            if _buf is not None:
+                setattr(sys, _name, io.TextIOWrapper(_buf, encoding="utf-8"))
+    del _name, _s
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LEDGER = os.path.join(ROOT, "docs", "evasion-ledger.md")
@@ -65,7 +90,49 @@ def wilson(k, n, z=1.96):
     return (max(0.0, c - m), min(1.0, c + m))
 
 
-def _fail(msg):
+def _ledger_sha256_best_effort():
+    """取台账摘要,失败返回 None —— 错误路径用:宁可缺字段,也不能让错误报告本身崩。"""
+    try:
+        return ledger_sha256()
+    except Exception:                           # noqa: BLE001 - 见 docstring
+        return None
+
+
+def _error_payload(msg, *, rollback_suspect=False, ok=False, extra=None):
+    r"""**错误结论的唯一一份 payload 定义**(Round 68 红队 F2)。
+
+    ⚠ 此前 `_fail()` 与 `__main__` 最外层兜底**各手写一份字面量**,于是 A10 新增的
+    `backfilled_total` / `backfilled_evaded` 在它们里**双双缺席** —— schema 又随退出码
+    变化了。这正是本文件 Round 32 修 `rollback_suspect` 时骂过的**同一形态**,A10 原样复发:
+    「新增字段时只记得改主路径」是**结构性**的,靠记性堵不住,只能靠**只有一份定义**。
+    (守卫:`test_A8` 现在断言**五种退出码的 JSON 键集完全相同**。)
+    """
+    d = {
+        "rounds": [], "scored": 0, "thin_rounds": [],
+        "evaded_total": 0, "self_found_total": 0, "self_rate": 0.0,
+        # A10:错误路径也必须带这两个键,否则消费方在 exit 2 上读不到
+        "backfilled_total": 0, "backfilled_evaded": 0,
+        "backfilled_struct_total": 0, "backfill_unlabeled": 0,
+        # F-D:错误路径也必须带 —— 键集不得随退出码变化(见 test_A8c)。
+        "settle_unparseable_total": 0,
+        "verdict": msg, "exit_code": EXIT_MALFORMED, "sufficient": False,
+        "rollback_suspect": rollback_suspect, "_ok": ok,
+        # A12 / 红队 R70:错误路径也必须能说清「审的是哪个版本」。
+        # ⚠ 此前这里填 `None` —— 而**最该钉版本的时刻(exit 2)结构化字段是空的**,
+        #   版本号只以 12 位前缀存在于 verdict 字符串里。
+        #   best-effort 取磁盘当前摘要;调用方可用 `extra` 覆盖
+        #   (漂移场景下应填**被 parse 的那一版**,而不是漂移后的)。
+        "ledger_sha256": _ledger_sha256_best_effort(),
+        # 红队 R69 F2 反例:第 4 条 exit 2 子路径(`check_rollback` 自身出错)会多带
+        # `rollback_check_error`,使键集变成 17。恒存在化,让键集真正与退出码无关。
+        "rollback_check_error": None,
+    }
+    if extra:
+        d.update(extra)
+    return d
+
+
+def _fail(msg, **kw):
     """A6:任何格式问题都必须 **exit 2** 并把原因写出来。
 
     ⚠ 这里踩过一个坑:`raise SystemExit(msg)` 的退出码是 **1**,
@@ -79,14 +146,9 @@ def _fail(msg):
       保证五种结论在 JSON 里都有对应表示。
     """
     if "--json" in sys.argv:
-        print(json.dumps({
-            "rounds": [], "scored": 0, "thin_rounds": [],
-            "evaded_total": 0, "self_found_total": 0, "self_rate": 0.0,
-            "verdict": msg.strip().splitlines()[0] if msg.strip() else "台账格式错",
-            "exit_code": EXIT_MALFORMED, "sufficient": False,
-            "error": msg.strip(), "rollback_suspect": False,
-            "_ok": False,
-        }, ensure_ascii=False))
+        print(json.dumps(_error_payload(
+            msg.strip().splitlines()[0] if msg.strip() else "台账格式错",
+            extra={"error": msg.strip()}), ensure_ascii=False))
     else:
         sys.stderr.write(msg.rstrip() + "\n")
     sys.exit(EXIT_MALFORMED)
@@ -109,7 +171,15 @@ def parse():
     if not os.path.exists(LEDGER):
         _fail(f"[A6] 台账文件不存在: {LEDGER}")
     tables, current, seen_header, saw_data_table = [], None, False, False
-    with open(LEDGER, encoding="utf-8") as fh:
+    # ⚠⚠ A12b(Round 70 红队 R70 反例 1 / 变异 M5):必须对**自己实际读到的那份字节**
+    #   算摘要,而不是另起一次读。否则「`parse()` 期间台账被改成全成立、返回前还原」
+    #   这一形态测不到 —— before 与 after 两次**独立**读都读到原样,而 parse 吃进去的是
+    #   被改过的内容,于是报出一个**与磁盘摘要一致却与判定不符**的版本号
+    #   (红队实测:`evaded_total=0` 而真值 104,报出的 sha 却是磁盘 sha)。
+    #   **那正是 R69 判【严重】的同一形态**:复算者按该 sha 重跑,拿不到同一个数。
+    raw = _read_ledger_bytes()
+    _PARSED["sha256"] = hashlib.sha256(raw).hexdigest()
+    with io.StringIO(raw.decode("utf-8")) as fh:
         for lineno, line in enumerate(fh, 1):
             s = line.strip()
             if not s.startswith("|"):
@@ -147,6 +217,39 @@ def parse():
                 rec["round"] = int(rec["提出轮"])
             except ValueError:
                 _fail(f"[A6] {LEDGER}:{lineno} 提出轮不是整数: {rec['提出轮']!r}")
+            # A10(2026-10-02 Round 68):铁律 1 声明「事后补写的一律标 `回填`,
+            # **不计入规避率统计**」,而本脚本此前**从不读 `备注`** —— 规则与实现不一致,
+            # 已躺在台账 §「铁律 1 未实现」22 轮。本轮**不擅自改语义**(那正是它要求
+            # 人工拍板的原因),只做两件不涉及语义的事:
+            #   ① 把 `回填` 标出来并**报出计数** —— 让「事后补写」这件事可见。
+            #      铁律 1 想防的恰恰是「补写冒充预注册」,而它连数字都没露过。
+            #   ② **照实计入**规避率(维持现状)。实现「回填不计入」= 我可以给一条规避行
+            #      贴上 `回填` 标签把它从指标里摘掉 —— **指标落回我手里**,
+            #      正是 R13 禁止的「优化让指标好看」。故更难看的那一侧必须钉住,
+            #      由 test_A10 防未来某轮以「让规则与实现一致」为名把它改成排除。
+            rec["backfilled"] = "回填" in rec["备注"]
+            # A11(Round 69 红队 F3/F6):上面那行是**自报** —— 「不贴标签」就能让它好看,
+            # 而脚本此前对它**没有任何客观交叉校验**。铁律 3 规定
+            # 「本轮提出的条目,**最早在下一轮才能结算**」,故 `结算轮 == 提出轮`
+            # 是**客观可算**的流程违规,完全不依赖我写的备注。
+            # ⚠ 两者**分开报**,不合并:它们不是同一个性质(一个是「我承认」,
+            #   一个是「账本自己露的」),合并会把「该标没标」这件事藏起来。
+            try:
+                n = int(rec["结算轮"])
+                # ⚠ 红队 R71 F-1:`int()` 成功**不等于**值合法 —— `0` / `-1` 也能解析,
+                #   于是客观数归零而 `settle_unparseable` 仍是 0(**归零通道从 1 条变 2 条,
+                #   新通道完全静默**)。轮次从 1 起,故 `< 1` 一律判非法。
+                rec["settle_unparseable"] = n < 1
+                rec["same_round"] = (n == rec["round"])
+            except (TypeError, ValueError):
+                # ⚠⚠ 红队 R69/R70 F-D:`—` / 空 / `n/a` / `?` → 该行**静默逃过**
+                #   客观判据(客观数归零、exit 不变、**零输出**)。实测:同一行写 `3`
+                #   时客观 1/未标 1,写 `—` 时客观 **0**/未标 **0**。
+                #   即:**把结算轮填成非数字,客观信号就没了,而脚本不吭声。**
+                #   「待结算」填 `—` 是合法的,故不能一律判错;但**已结算**行必须
+                #   可解析 —— 故单独计数并报出来,让它不能再静默。
+                rec["same_round"] = False
+                rec["settle_unparseable"] = True
             if rec["状态"] not in VALID_STATUS:
                 _fail(f"[A6] {LEDGER}:{lineno} 状态越界: {rec['状态']!r}")
             if rec["检出方"] not in VALID_FINDER:
@@ -170,16 +273,59 @@ def parse():
 
 
 def main():
+    # ⚠⚠ A12(Round 70 红队 F-A —— **连续两轮**被判【严重】):审计**期间**台账被改动,
+    #   脚本此前毫无察觉。R68 的 F1 是我跑变异改了工作区;R69 的 F-A 是**我的正常记账**
+    #   改了台账 —— 两次都让红队审到「**动靶**」,且**声称的数字事后不可复现**
+    #   (它开工快照能逐字复现 `81/94/23`,收工同一命令却是 `84/97/23`)。
+    #   根因**不是纪律,是机制**:脚本从不检查「我读的那个版本」和
+    #   「我出判定时的那个版本」是不是同一份。纪律我已经违反两次了。
+    #   故:记下**parse 实际读到的那份字节**的摘要,出判定前再取一次磁盘摘要,
+    #   不一致就 **exit 2**(不可判定)—— 绝不给一个基于某个**中间状态**的判定。
+    #   同时把摘要写进输出,让任何判定都能被对应到**一个具体版本**上。
     rows = parse()
+    before = _PARSED["sha256"]           # ← **parse 实际读到的那份**,不是另起一次读
     report = build_report(rows)
+    report["ledger_sha256"] = before
+
+    after = ledger_sha256()
+    if after != before:
+        # ⚠⚠ 红队 R70 的【严重】纠正:**本条只覆盖「单次运行窗口内」**。
+        #   三个**未变异的生产代码**反例,它一个都挡不住:
+        #     ① `parse()` **期间**被改、返回前还原 → before 与 after 都读到原样,
+        #        漂移不可见,而 parse 读到的是被改过的内容(**与 R69 同一形态**);
+        #     ② `after` 之后再改 → JSON 报旧、审计日志记新;
+        #     ③ **两次运行之间**改(正是 R69 的实际场景)→ 本条**零反应**。
+        #   故措辞**必须收窄**:它声明的是「本次运行窗口内台账未变」,
+        #   **不是**「判定可复现」—— 后者需要**外部锚**(git blob / 远端),
+        #   而不是运行内两点比较。**R69 那条【严重】问题本轮未修。**
+        _fail(f"[A12] 审计期间台账被改动({before[:12]}… → {after[:12]}…) —— "
+              f"本次判定可能基于**中间状态**,不得采信;请重跑。"
+              f"⚠ 本检查只覆盖**单次运行窗口**:挡不住 parse() 期间改动、"
+              f"after 之后改动、以及**两次运行之间**的改动。",
+              extra={"ledger_sha256": before})
 
     # 单调性检查必须在写日志**之前**做 —— 拿「上一条」比,不是拿自己比自己
-    rollback = check_rollback(report)
+    # ⚠ 这一步绝不能抛异常:未捕获异常会让 Python 以退出码 1 结束,
+    #   而 1 在本脚本约定里是「G5 抬头」—— 一次内部错误会被**误报成抬头**。
+    #   (Round 36 实测:忘 import subprocess 导致 exit 1,第一眼看着像「高位持续」。)
+    #   故:内部错误一律转成 EXIT_MALFORMED,并在输出里说明是什么错。
+    try:
+        rollback = check_rollback(report)
+    except Exception as e:                      # noqa: BLE001 - 兜底防误报
+        rollback = f"[A6] 回退检测自身出错({type(e).__name__}: {e}) —— " \
+                   f"本次**未做**回退检查,不能据此认为台账未被改动"
+        report["_ok"] = False
+        report["exit_code"] = EXIT_MALFORMED
+        report["rollback_check_error"] = str(e)
     if rollback:
         report["verdict"] = rollback
         report["_ok"] = False
-        report["exit_code"] = EXIT_ROLLBACK
-        report["rollback_suspect"] = True
+        # 回退是**比任何原判定更严重**的问题(它意味着「结论建立在被改过的账本上」),
+        # 故无条件覆盖 exit_code —— 否则会出现「样本不足 exit=3 同时又在报回退」这种
+        # 把严重问题藏进较轻码里的情况。
+        report["exit_code"] = (EXIT_MALFORMED if "回退检测自身出错" in rollback
+                               else EXIT_ROLLBACK)
+        report["rollback_suspect"] = "自身出错" not in rollback
 
     # ⚠⚠ 检测到回退时**绝不追加日志**(Round 30 修红队实测的 T7):
     #   初版无条件追加,于是「回退那一跑」会把**篡改后的数字**固化成新基线 ——
@@ -226,6 +372,33 @@ def main():
     #   而 1 在本脚本约定里是「G5 抬头」—— 正常审计被误读成抬头告警。
     #   (红队 1812cf7e 实测:加了这个符号后 exit=1,正是它自己 _fail() 注释里骂过的撞车。)
     print("  注意: 检出率与规避率是两个量: 检出率上升可能只说明红队手段升级, 不代表本轮变差。")
+    print(f"A10 回填标注 = {report['backfilled_total']} 条"
+          f"(其中判为规避 {report['backfilled_evaded']} 条) —— "
+          f"铁律 1 写「不计入规避率统计」,本脚本**照实计入**(排除 = R13 禁止的自我美化方向);"
+          f"此数只做可见性:补写规模变大必须能被看见")
+    print(f"A11 客观交叉校验 = {report['backfilled_struct_total']} 条"
+          f"(结算轮==提出轮,违反铁律 3「最早在下一轮才能结算」)"
+          f" · **未标而客观违规 {report['backfill_unlabeled']} 条** —— "
+          f"自报与客观**分开报**,差值就是「我少贴了多少标签」;"
+          f"不合并是因为一个是「我承认」、一个是「账本自己露的」")
+    # F-D(红队 R69/R70)/ F-1(红队 R71):已结算但 `结算轮` **不可解析或不合法**的行,
+    # 会**静默逃过**上面两个数。实测:同一行写 `3` 时客观 1/未标 1;写 `—` 时客观 **0**/未标 **0**;
+    # 写 `0` / `-1` 时**同样** 0/0(首版只堵「不可解析」,`int()` 能过就放行 —— 归零通道反而多一条)。
+    # 故单独报出来。⚠⚠ 但**「为 0」不等于「信号完整」**(红队 R71 F-1/F-2 实测):
+    #   这两个数都派生自**自报字段** —— `状态`(规避/待结算)与 `结算轮` 都由我自己填。
+    #   实测:把一条真违规行的 `状态` 改成「待结算」→ 三数**同时归零**,exit 不变;
+    #   把 `结算轮` 填成 `999999` / `3_0`(=30)→ 客观 0 而本行**仍是 0**。
+    #   故本行**只能**声明「没有明显非法值」,**不能**声明「客观信号完整」。
+    print(f"A11b 结算轮不可解析或不合法 = {report['settle_unparseable_total']} 条(已结算行)"
+          f" —— 这些行**不会**进入上面两个数。"
+          f"⚠ 本行为 0 **不等于**上方信号完整:`状态` 与 `结算轮` **都是自报字段**,"
+          f"填 `999999` 或把状态改成「待结算」都能让三数同时归零而不被本行发现")
+    # 红队 R70:摘要必须**印在人类面** —— 此前 49 行输出里连 `sha` 三字母都没有,
+    # 于是「我审的是哪一版」只存在于 JSON 里,而读人类面的人看不到。
+    # ⚠ 措辞收窄:这只声明「本次运行窗口内台账未变」,**不是**「判定可复现」。
+    print(f"被审台账 sha256 = {report['ledger_sha256']} —— "
+          f"本摘要声明的是**本次运行窗口内**台账未变;"
+          f"它**不等于**「判定可复现」(跨运行改动它测不到,需外部锚)")
     if not report["sufficient"]:
         print("  警告: 样本量不足, 本结论**统计不充分**, 任何抬头/未抬头都不构成证据, 需人工判断。")
     else:
@@ -269,13 +442,110 @@ EXIT_MALFORMED = 2      # 台账格式错
 EXIT_INSUFFICIENT = 3   # 样本不足,判定不可用(需补条目/多跑几轮)
 
 
-def ledger_digest():
+def _read_ledger_bytes():
     with open(LEDGER, "rb") as fh:
-        return hashlib.sha256(fh.read()).hexdigest()[:16]
+        return fh.read()
 
 
-def read_last_log():
-    r"""读审计日志里的**历史最高基线**(按已结算条目数取 max);没有则返回 None。
+# A12b:`parse()` 实际读到的那份字节的摘要。main() 用它当 `before` ——
+# 这样「parse 期间被改、返回前还原」也能被 `after != before` 抓到。
+_PARSED = {"sha256": None}
+
+
+def ledger_sha256():
+    """被审台账的**完整** sha256(钉版本用)。"""
+    with open(LEDGER, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def ledger_digest():
+    return ledger_sha256()[:16]
+
+
+def git_head_baseline():
+    """从 **git HEAD** 读审计日志的基线。
+
+    ⚠⚠ Round 40 按红队 91faf08d 实测**删掉「不可篡改」四个字**(它此前被我写在这里):
+      该红队实测「把日志改写成一条自洽的低水位(11→10, 10→9)并 commit,再删掉那条规避行,
+      审计全程 exit 3 静默通过」。即 **锚与被审计对象在同一个人手里**,
+      改锚不需要任何特殊权限 —— 多一个 `git commit` 而已。
+      所以本函数提高的是**门槛**(从「改一个文件」升到「改文件 + 改 git 历史」),
+      **不是可能性**。同一文件另一处的注释(日志表头)一直写的是对的:
+      「这不是防篡改设施……真正的信任根在仓外」。这里之前那句是**过度声明**。
+      仓内仅剩的真解:CI 在 PR 上跑这条审计并把结果**存到仓外**(或 protected branch / signed tag)。
+
+    在此之前,基线只来自 `docs/evasion-audit.log` 工作区文件,而该文件
+    **能改台账的人同样能改** —— 红队 22cc7297 实测的「清空整个日志」因此完全无解。
+    现在读 HEAD,那条绕法被堵住了(红队 91faf08d 实测 7/7)。
+
+    读不到时(未 commit / 文件不在 HEAD / 没装 git)返回 None,
+    调用方须**明确告知用户基线来自哪里**,不得假装有仓外锚。
+    """
+    try:
+        r = subprocess.run(["git", "show", "HEAD:docs/evasion-audit.log"],
+                           cwd=ROOT, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+    except (OSError, FileNotFoundError):
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    return r.stdout
+
+
+def parse_log_text(text, ledger_claimed=None):
+    """从日志文本里取**历史最高基线**;坏行跳过而不是整体放弃。
+
+    ⚠ `ledger_claimed`:当前台账里**声称**的条目总数,用作基线的**合理性上界**。
+
+    ⚠⚠ Round 41 修红队 91faf08d 实测的**误报 DoS**(Q2-B):
+      基线取 `max(settled)` 且**没有上界**,于是**在日志里加一行伪造文本**即可让审计
+      从此**永远 exit 4**:
+        `... | 9999 | 9999 | 9999 | 伪造超高基线 | 0`
+        → `★ 回退嫌疑:已结算条目数 9999 -> 11(少了 9988 条)`
+      它**不能**用来免报警(只升不降,方向是安全的),但能让「报警」变成噪声而被忽略 ——
+      这比绕过更阴险,因为它让人对真报警脱敏。
+
+      修法:基线超过「当前台账声称的条目总数」时,视为**损坏行**并跳过,
+      同时在输出里显式告警(不静默 —— 否则就变成另一种静默)。
+      正常情况下基线只会 ≤ 台账总数(台账条目只会增、不会凭空多出)。
+    """
+    best = None
+    suspicious = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        parts = s.split("|")
+        if len(parts) < 7:
+            continue
+        try:
+            rec = {"ts": parts[0].strip(), "digest": parts[1].strip(),
+                   "claimed": int(parts[2]), "settled": int(parts[3]),
+                   "evaded": int(parts[4]), "verdict": parts[5].strip(),
+                   "exit": int(parts[6].strip())}
+        except ValueError:
+            continue
+        # ⚠⚠ 上界必须**足够宽松**,否则会误伤真回退(本轮踩过一次):
+        #   初版用 `settled > claimed`(当前台账条目数)作上界,而「删台账一行」这个
+        #   **恰恰会让 claimed 减少** —— 历史基线 settled=11 vs 当前 claimed=10,
+        #   于是基线被判「不合理」跳过,真回退**检不出来**(实测 exit 3 而非 4)。
+        #   故上界取 `max(claimed*2, claimed+20)`:
+        #     伪造超高水位(9999 vs 台账 16 条)仍会被拦;
+        #     而任何「删了若干条目」导致的自然下降都不会被拦。
+        if ledger_claimed is not None:
+            cap = max(ledger_claimed * 2, ledger_claimed + 20)
+            if rec["settled"] > cap:
+                suspicious.append((rec["ts"], rec["settled"], cap))
+                continue
+        # 历史最高基线(不是最后一行):追加一条格式合法但数字为零的基线行
+        # 无法把约束清零(红队 22cc7297 实测的绕C)
+        if best is None or rec["settled"] > best["settled"]:
+            best = rec
+    return best, suspicious
+
+
+def read_last_log(ledger_claimed=None):
+    r"""读审计日志基线:优先 **git HEAD**,回退到工作区文件。
 
     ⚠⚠⚠ Round 34 修红队 22cc7297 的实测漏洞:**初版的 `return None` 是
     「关掉全部回退检测」的开关**。它对两种输入都返回 None:
@@ -285,36 +555,27 @@ def read_last_log():
     而返回 None 还会让 `do_log=True` → **篡改后的数字被写进日志成为新基线**,
     于是 T7「报警自己消失」的修法在这条路径上完全失效(根本没触发回退)。
 
-    两处修法(红队已实跑验证):
+    四处修法(前两条红队 22cc7297 已实跑验证,后两条分别是 Round 37/41 加的):
       1. 坏行 **continue 跳过**,而不是整体放弃;
       2. 基线取**全部历史行的 max(settled)**,而不是「最后一行」——
-         否则追加一条格式合法但数字为零的基线行即可把约束清零(红队实测绕C)。
+         否则追加一条格式合法但数字为零的基线行即可把约束清零(红队绕C);
+      3. 基线优先取自 **git HEAD**,使「清空工作区日志」(红队绕B)也能检出;
+      4. 基线不得超过**当前台账声称的条目总数**(Round 41,防误报 DoS)。
 
-    ⚠ 仍无法防的:**清空整个日志**。仓内无解,需要仓外锚(git commit 后的
-    `git show HEAD:...`)。已在输出里如实标注,不在此假装能防。
+    返回 `(基线, 可疑行列表)`;两者都可能为 None/空。
     """
-    if not os.path.exists(AUDIT_LOG):
-        return None
-    best = None
-    for line in open(AUDIT_LOG, encoding="utf-8").read().splitlines():
-        s = line.strip()
-        if not s or s.startswith("#"):
-            continue
-        parts = s.split("|")
-        if len(parts) < 7:
-            continue                      # ← 原 return None:全局静默开关
-        try:
-            rec = {"ts": parts[0].strip(), "digest": parts[1].strip(),
-                   "claimed": int(parts[2]), "settled": int(parts[3]),
-                   "evaded": int(parts[4]), "verdict": parts[5].strip(),
-                   "exit": int(parts[6].strip())}
-        except ValueError:
-            continue                      # ← 同上
-        # 历史最高基线(不是最后一行):追加一条格式合法但数字为零的基线行
-        # 无法把约束清零(红队 22cc7297 实测的绕C)
-        if best is None or rec["settled"] > best["settled"]:
-            best = rec
-    return best
+    head = git_head_baseline()
+    best, suspicious = (None, [])
+    if head:
+        best, s1 = parse_log_text(head, ledger_claimed)
+        suspicious += s1
+    if os.path.exists(AUDIT_LOG):
+        local, s2 = parse_log_text(open(AUDIT_LOG, encoding="utf-8").read(),
+                                   ledger_claimed)
+        suspicious += s2
+        if local and (best is None or local["settled"] > best["settled"]):
+            best = local
+    return best, suspicious
 
 
 def append_log(report, code):
@@ -334,8 +595,13 @@ def append_log(report, code):
 
 
 def check_rollback(report):
-    """单调性检查:已结算条目数 / 规避数不得低于上一条日志记录。"""
-    last = read_last_log()
+    """单调性检查:已结算条目数 / 规避数不得低于历史基线。"""
+    ledger_claimed = sum(r["claimed"] for r in report["rounds"])
+    last, suspicious = read_last_log(ledger_claimed)
+    if suspicious:
+        for ts, s, cap in suspicious[:3]:
+            print(f"  [A6] 基线日志有**不合理**的行(已跳过): {ts} 声称 settled={s},"
+                  f"但当前台账共只有 {cap} 条 —— 疑似伪造高水位以制造永久误报")
     if last is None:
         return None
     settled = sum(r["settled"] for r in report["rounds"])
@@ -373,6 +639,15 @@ def build_report(rows):
             "rate": round(len(ev) / len(settled), 4) if settled else None,
             "wilson95": [round(lo, 4), round(hi, 4)],
             "self_found": sum(1 for i in ev if i["检出方"] == "自查"),
+            # A10:回填**照实计入**上列计数;这两个字段只做**可见性**,不参与任何比率。
+            "backfilled": sum(1 for i in settled if i.get("backfilled")),
+            "backfilled_evaded": sum(1 for i in ev if i.get("backfilled")),
+            # A11:客观信号 + 「该标没标」的差值(防「不贴标签就好看」)
+            "backfilled_struct": sum(1 for i in settled if i.get("same_round")),
+            "backfill_unlabeled": sum(1 for i in settled
+                                      if i.get("same_round") and not i.get("backfilled")),
+            # F-D:已结算但 `结算轮` 不可解析的条数 —— 它们**静默逃过**上面两行。
+            "settle_unparseable": sum(1 for i in settled if i.get("settle_unparseable")),
             # 样本量门(Round 26):n 不足的轮次不参与比率比较
             "scorable": len(settled) >= MIN_ITEMS_PER_ROUND,
         })
@@ -441,6 +716,22 @@ def build_report(rows):
         "evaded_total": total_ev,
         "self_found_total": total_self,
         "self_rate": (total_self / total_ev) if total_ev else 0.0,
+        # A10:回填计数**恒存在**(与 `rollback_suspect` 同理 —— schema 不得随运行变化)。
+        # 它只做可见性,不改任何比率;`backfilled_evaded` 才是「靠补写能摘掉多少条规避」。
+        "backfilled_total": sum(r["backfilled"] for r in report),
+        "backfilled_evaded": sum(r["backfilled_evaded"] for r in report),
+        "backfilled_struct_total": sum(r["backfilled_struct"] for r in report),
+        "backfill_unlabeled": sum(r["backfill_unlabeled"] for r in report),
+        # F-D:已结算但结算轮不可解析 —— 恒存在,与其余键一样不随退出码变化。
+        "settle_unparseable_total": sum(r["settle_unparseable"] for r in report),
+        # Round 68 红队 F2 的收口:错误路径有 `error`、成功路径没有 → 键集仍不等。
+        # 与其给守卫开例外(「error 允许只在 exit 2 出现」),不如让它**恒存在**:
+        # 成功时为 None。消费方一律 `data["error"]` 即可,不必写 `.get(..., None)`。
+        "error": None,
+        # A12 / F2 反例:两个键必须**恒存在**(值由 main() 或错误分支填),
+        # 否则键集又会随退出码变化 —— 那正是 Round 32 与 R68 各犯过一次的形态。
+        "ledger_sha256": None,
+        "rollback_check_error": None,
         "verdict": verdict,
         "exit_code": code,
         "sufficient": len(scored) >= MIN_ROUNDS_FOR_VERDICT,
@@ -451,4 +742,27 @@ def build_report(rows):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # ⚠⚠ Round 40 修红队 91faf08d 的高危项:我此前两次声称「内部错误一律转 EXIT_MALFORMED」,
+    #   但**那个 try 只包住了 check_rollback**。`parse()` / `build_report()` / `append_log()`
+    #   全在 try 之外,实测:
+    #     台账变成目录        -> 未捕获 PermissionError            -> exit 1
+    #     台账含非法 UTF-8 字节 -> 未捕获 UnicodeDecodeError          -> exit 1
+    #   而 **1 在本脚本约定里是「G5 抬头或高位持续」** ——
+    #   即一次 IO/编码故障会被**误报成业务判定**,正是本脚本第 74 行注释骂过的那件事。
+    #   (且 Round 35 刚修完全仓 U+FFFD 编码损坏,同一故障族却仍会这样误报。)
+    # 故在**最外层**兜底:任何未预期异常都转成 EXIT_MALFORMED,并说清「本次未得出判定」。
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except BaseException as exc:                       # noqa: BLE001 - 最外层兜底
+        payload = _error_payload(
+            f"[A6] 审计脚本内部错误({type(exc).__name__}: {exc}) —— "
+            f"本次**未得出任何判定**,不得据此认为「未抬头」或「可以继续」",
+            rollback_suspect=None, ok=None,
+            extra={"error": f"{type(exc).__name__}: {exc}"})
+        if "--json" in sys.argv:
+            print(json.dumps(payload, ensure_ascii=False))
+        else:
+            sys.stderr.write(payload["verdict"] + "\n")
+        sys.exit(EXIT_MALFORMED)

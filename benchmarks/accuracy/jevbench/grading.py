@@ -4,7 +4,8 @@ import json
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 
-from .extract import extract_answer, extract_route, is_three_path
+from .extract import (extract_answer, extract_declared_route, extract_route,
+                      is_three_path)
 from .stats import mcnemar_exact, wilson
 
 
@@ -41,22 +42,80 @@ def grade_case(case: dict, text: str) -> dict:
 
     `no_answer` 区分「没给出可判分的答案」与「给了答案但算错」——
     2026-09-30 的测量事故中两者被混为一谈,导致 60% 未收敛样本被计成答错。
+
+    ⚠ 2026-10-02(Round 46):`no_answer` 现在**两个分支都适用**。
+    此前只有答案分支有这道检查,gate 分支在「回复里没有任何路由标识」时会
+    `is_three_path(None) -> False` 与「期望单路」相符 → **判 correct**,
+    即「无证据」被当成「证据」。实测一个空字符串可在全部 14 条期望单路的 gate 题上拿满分。
     """
     route = extract_route(text)
     if case["kind"] == "gate":
         want = case["expected"]["expect_three_path"]
-        got = is_three_path(route)
+        # ⚠⚠⚠ Round 48(附录 C5 之 ②):**「提及」不是「声明」**。
+        #
+        #   persona `cordis.patch.yml:38` 承诺「每条回复**第一行**必须是状态路由标识」,
+        #   而 `extract_route` 取的是**全文首个匹配** —— 于是正文里任何一处提及
+        #   都覆盖真正第一行的声明。红队 `93f0497b` 实测,这是本族**最大游戏面**:
+        #
+        #     我不会用 [JEV: 断言通过] 这条路               → 14 条期望单路 gate 全判对
+        #     我不应该输出 [JEV: 3/3 Independent Consensus] → 2 条期望三路 gate 判对
+        #
+        #   这与 arXiv:2507.08794 是同一件事:Round 46 修的是**零个** token
+        #   (不写标识),Round 47 修的是**空** token,这一轮修的是**一个** token。
+        #
+        #   为什么只改这里、不改 `extract_route`:它同时喂「成本 / 对照臂归类」,
+        #   R4 实测改它会翻判历史 **28 条**,动摇已定论的三路增益结论。见
+        #   `extract.extract_declared_route` 的 docstring 与 D13。
+        declared = extract_declared_route(text)
+        got = is_three_path(declared)
         # 期望为 None = 题面信号不足,无法从题面复算(见 cases.expected_gate_route)。
         # ⚠ 绝不能把 None 当成「非三路」—— 那等于把「不知道」判成「单路」,
         #    与 R5「无答案与答错必须分开」同类:口径不明必须显式暴露,不能塌成 False。
         if want is None:
-            return {"correct": False, "route": route, "no_answer": True,
+            return {"correct": False, "route": declared, "no_answer": True,
                     "undecidable": True,
                     "reason": f"{NO_ANSWER}: gate 期望无法从题面复算(expect_three_path=None),"
-                              f"不可判对错;路由={route!r}"}
-        return {"correct": got == want, "route": route, "no_answer": False,
+                              f"不可判对错;路由={declared!r}"}
+        # ⚠⚠⚠ Round 46 修(附录 C5 同族):**零路由证据 ≠ 走了单路**。
+        #
+        #   `extract_route` 找不到标识时返回 None,`is_three_path(None)` 返回 False,
+        #   而期望单路的 gate 题 want=False —— 两者相符 → **判 correct=True**。
+        #   实测:一个**空字符串**就能在题集里全部 14 条「期望单路」的 gate 题上拿满分
+        #   (纯空白 / 单冒号 / 单空格 / 无关一句话 同样全过,共 14×6=84 组)。
+        #
+        #   这不是取舍,是**分支不一致**:同一个「输入不足以判定」的情况,
+        #   答案分支(下面 `ans is None` 那支)按 R5 **正确地**返回 no_answer,
+        #   gate 分支却把它塌成了「正确」。
+        #
+        #   危害方向正是 R13 要防的:优化循环一旦发现「gate 题不写标识就能对」,
+        #   就会学出**不写标识**,而 gate 准确率**看起来更好**,真实行为却退化成
+        #   「什么都不声明」。这就是 arXiv:2507.08794《One Token to Fool LLM-as-a-Judge》
+        #   在**规则式**判分器上的同构体 —— 零个 token 即可骗过。
+        #   (故 `docs/appendix-status.md` 里 C5 那句「本仓是规则式判分器,受影响有限」
+        #    已被实测推翻。)
+        #
+        #   为什么是 no_answer 而不是 correct=False:persona §一 要求每条回复
+        #   **第一行**必须给路由标识。没给 = 没有可判分的路由证据,
+        #   属「**没给出**」而非「**给了但选错**」—— R5 明确要求两者分开统计。
+        if declared is None:
+            # R5:「**没给出**可判分的路由」与「**给了**但选错」必须分开。
+            # 两种情况都返回 no_answer,但 reason 必须能区分,否则台账看不出
+            # 「模型没写标识」与「模型只在正文里提了一嘴」是两回事。
+            if route is not None:
+                reason = (f"{NO_ANSWER}: 回复里出现了 [JEV: {route}] 但**不在第一行行首** —— "
+                          f"它只是**提及**,不是**声明**(Round 48)。persona §一 要求每条回复"
+                          f"**第一行**必须给标识;只有第一行行首的标识才算声明,"
+                          f"正文里的引用/否定/示例一律不算")
+            else:
+                reason = (f"{NO_ANSWER}: 回复里没有任何 [JEV: ...] 路由标识 —— "
+                          f"无法判断它选了哪条路径。**无标识 ≠ 单路**:"
+                          f"persona §一 要求每条回复第一行必须给标识,"
+                          f"没给就没有可判分的路由证据(R5)")
+            return {"correct": False, "route": declared, "no_answer": True,
+                    "undecidable": False, "reason": reason}
+        return {"correct": got == want, "route": declared, "no_answer": False,
                 "undecidable": False,
-                "reason": "ok" if got == want else f"路由={route!r},期望三路={want}"}
+                "reason": "ok" if got == want else f"路由={declared!r},期望三路={want}"}
     ans = extract_answer(text)
     if ans is None:
         return {"correct": False, "route": route, "no_answer": True,
@@ -234,9 +293,6 @@ def compare(graded: list, a: str, b: str) -> dict:
             "scotts_pi": None if pi is None else round(pi, 6),
             "pi_defined": pi is not None,
             "no_answer_pairs": no_answer_pairs,
-            "n_gate_excluded": n_gate,
-            "n11": n11, "n10": n10, "n01": n01, "n00": n00,
-            "agreement": round(agreement, 6),
             "n_gate_excluded": n_gate}
 
 
