@@ -70,6 +70,22 @@ JEV 的三路隔离采样与结构化重算都以「按任务复杂度选思考�
 > ⚠ **auto 只对新会话生效**。宿主 `dsh-agent` 的后置拾取器只认 session request header 里
 > 持久化的 UI 选择，改配置对已有会话无效。
 
+#### ⚠ 安装时必须带上 `dsh-auto-reasoning`
+
+2026-10-05 起档位插件不再是 codemode 的一部分，**改由本 bundle 声明**。装 jev 时请一并装：
+
+```bash
+dsh plugin --profile <你的 profile> add dsh-auto-reasoning
+```
+
+漏装的症状**不是报错，而是 profile 起不来**（Loader 解析不到 `dsh-auto-reasoning` 这个包名）。
+反过来，**profile 的 `cordis.patch.yml` 不得再单独 insert `plugin-auto-reasoning`** ——
+Loader entry id 重复同样会让 profile 起不来。`node validate.mjs` 会校验这条附属声明行。
+
+> ⚠ 若你的 profile 里 `plugin-codemode` 配了 `autoReasoning: true`，请删掉。
+> 该键已于同日从 codemode 移除；cordis 按整条 entry 校验配置，未知键会让
+> 整条 `plugin-codemode` 不激活，表现为「codemode 工具凭空消失」。
+
 ---
 
 ## 🧭 门控决策：什么时候做什么
