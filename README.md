@@ -49,6 +49,27 @@ dsh --profile <你的 profile> --dump-config
 > 声明行自带 `inject = ["agentPresets"]`，由 loader 等注册表就绪后激活，子插件路径由宿主
 > `@deepseek-ai/dsh-agent-preset` 的 baseUrl 解析。0.1.7 起实测可用，0.2.0-rc.2 上验证通过。
 
+### 🔗 附属插件：自动思考程度（2026-10-05 起）
+
+JEV 的三路隔离采样与结构化重算都以「按任务复杂度选思考档位」为前提 ——
+档位太低，断言算错没人发现。本 bundle 因此**顺带**把另一个独立插件挂进 loader 树：
+
+| | |
+|---|---|
+| 插件 | [`dsh-auto-reasoning`](https://github.com/Yum-wu/dsh-auto-reasoning) |
+| 关系 | **引用关系** —— 代码不并入本仓，由本 bundle 的 `cordis.patch.yml` 声明 |
+| 声明位置 | 与 `preset-jev` **同一个 insert 组**里的第二条声明行（`id: plugin-auto-reasoning`） |
+| 做什么 | 把模型配置里的 `reasoningEffort: auto` 哨兵，换算成该模型自己的合法档位 |
+
+> ⚠ **profile 的 `cordis.patch.yml` 不得再单独 insert `plugin-auto-reasoning`** ——
+> Loader entry id 重复会让 profile 起不来。`node validate.mjs` 会校验这条附属声明行。
+>
+> ⚠ **连带取舍**：卸载 jev preset = 一并失去 auto 档位，思考档位回落到**模型默认档**
+> （不是 `high` —— 哨兵没了就没有任何人做换算）。
+>
+> ⚠ **auto 只对新会话生效**。宿主 `dsh-agent` 的后置拾取器只认 session request header 里
+> 持久化的 UI 选择，改配置对已有会话无效。
+
 ---
 
 ## 🧭 门控决策：什么时候做什么

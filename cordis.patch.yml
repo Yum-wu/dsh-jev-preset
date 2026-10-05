@@ -366,3 +366,22 @@
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+
+# ── 同一个 insert 组里的第二条声明行:自动思考程度插件(2026-10-05)──────
+# JEV 本身是**纯提示词**插件(无运行时代码),但它的三路隔离采样与结构化重算
+# 都以「按任务复杂度选思考档位」为前提 —— 档位太低,断言算错没人发现。
+#
+# 这里用 cordis 原生机制做**引用关系**,不是把代码搬进来:
+# 本 bundle 顺带把 `dsh-auto-reasoning` 挂进 Loader 树,装了 jev 就带上 auto 档位。
+# 插件本体与发布节奏独立(见 <https://github.com/Yum-wu/dsh-auto-reasoning>)。
+#
+# ⚠ 因此 profile 的 cordis.patch.yml **不得**再单独 insert 同一条 `plugin-auto-reasoning`
+#   —— Loader entry id 重复会让 profile 起不来(实测同类:duplicate loader entry id:
+#   web-ui-provider-panel)。改前先 grep 一遍 profile。
+# ⚠ 连带取舍:卸载 jev preset = 一并失去 auto 档位,思考档位回落到模型默认档
+#   (不是回落到 high —— 哨兵没了就不会有人换算)。
+    - id: plugin-auto-reasoning
+      name: 'dsh-auto-reasoning'
+      config:
+        enabled: true
+        decisionCap: 50

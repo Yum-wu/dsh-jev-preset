@@ -49,12 +49,30 @@ const inserts = patch.filter((p) => p && p.insert)
 if (inserts.length !== 1) fail(`期望恰好 1 个 insert patch,实际 ${inserts.length}`)
 else ok('恰好 1 个 insert patch')
 const rows = inserts.flatMap((p) => p.insert)
-if (rows.length !== 1) fail(`期望恰好 1 个声明行,实际 ${rows.length}`)
-const decl = rows[0]
+// 2026-10-05 起本组有 2 条声明行：preset-jev（agent preset）+ plugin-auto-reasoning
+// （思考档位插件，见 cordis.patch.yml 末尾「同一个 insert 组里的第二条声明行」段）。
+// 因此**按 id 定位**而不是假设 rows[0] —— 顺序一变就静默校验错对象。
+if (rows.length < 1) fail('insert 组里没有任何声明行')
+else ok(`insert 组内 ${rows.length} 条声明行: ${rows.map((r) => r?.id).join(', ')}`)
+const decl = rows.find((r) => r?.id === 'preset-jev')
+if (!decl) fail('insert 组里找不到 id=preset-jev 的声明行')
+else ok('preset 声明行按 id 定位成功(id=preset-jev)')
 if (decl?.name !== '@deepseek-ai/dsh-agent-preset') fail(`声明行 name 应为 @deepseek-ai/dsh-agent-preset,实际 ${decl?.name}`)
 else ok(`声明行 name = ${decl.name}`)
 if (decl?.id !== 'preset-jev') fail(`Loader 行 id 应为 preset-jev,实际 ${decl?.id}`)
 else ok(`Loader 行 id = ${decl.id}`)
+
+// 同组的非 preset 声明行：只允许已知的插件 id，且名字必须能被 Loader 解析
+const extraRows = rows.filter((r) => r?.id !== 'preset-jev')
+const ALLOWED_EXTRA = new Set(['plugin-auto-reasoning'])
+for (const r of extraRows) {
+  if (!ALLOWED_EXTRA.has(r?.id)) fail(`insert 组里出现未登记的非 preset 声明行 id=${r?.id}`)
+  else ok(`附属声明行 id=${r.id} name=${r.name}`)
+}
+if (extraRows.some((r) => r?.id === 'plugin-auto-reasoning') && decl) {
+  // profile 的 cordis.patch.yml 不得再单独 insert 同 id —— Loader entry id 重复会让 profile 起不来
+  ok('plugin-auto-reasoning 已由本 bundle 声明（profile 侧须留空，见 cordis.patch.yml 注释）')
+}
 
 // ── 3. config 字段(schemastery 契约:仅这些键被接受)────────────────────────
 console.log('\n[3] config 字段契约')
