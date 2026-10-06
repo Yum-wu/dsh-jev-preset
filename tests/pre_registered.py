@@ -49,7 +49,14 @@ PARTICIPATING_FILES = (
 
 HARNESS_TESTS = 10
 #: `package.json` 的 `scripts.test` 里声明的 python 套件数下界
-SUITE_FILES = 35
+#: ⚠ 2026-10-06 35 → 36:此前 `tests/test_boundary_check.py` **存在于 tests/ 但从未挂进 `npm test`**
+#:   (commit 1274cda 加入后一直没接线),导致 `g_check._expected_suites()`(36)与
+#:   `_declared_suites()`(35)不等 → `g1()` 形状判据恒红 → `tests/test_no_silent_skips.py` 双红。
+#:   接线后 scripts.test 的真实计数从 35 变 36,本下界随之同步上调。
+#:   ⚠ 这**不是** R95 P16-R95-A 那次「把常量对齐到错口径的算法」—— 那次算法扫了整份
+#:   `package.json`(多算了 `scripts["test:mutation"]`),是算法错;本次算法口径未动
+#:   (仍只扫 `scripts.test`),变的是**被计数的对象**。
+SUITE_FILES = 36
 #: 被测套件断言总数下界。⚠ **这个「总数」本身不可复算、且单位失真**(红队 R82 P2-R82-F):
 #:   R81 记 **406**、R82 用文件自带的 `_COUNTER` 连跑两次逐用例计数 **IDENTICAL** 得 **407** ——
 #:   两数对不上;更要紧的是**单位**:1 条 `assertEqual('abc','abc')` 被记 **4** 次

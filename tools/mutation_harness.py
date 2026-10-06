@@ -437,7 +437,10 @@ def _code_side_pre_registered():
         # ⚠ R95 第 2 轮(红队 P16-R95-A【高】):口径必须是 **`scripts.test`** ——
         #   扫**整份** package.json 会把 `scripts["test:mutation"]` 的
         #   `tests/mutate_guardrails.py` 也算进来(它不匹配 `test_*.py`,是**另一个** 36)。
-        #   四个口径(PR 注释 / TH 唯一消费者 / G1 两处)一致 = **35**。
+        #   四个口径(PR 注释 / TH 唯一消费者 / G1 两处)一致 = **36**
+        #   ⚠ 2026-10-06 35 → 36:接线 `tests/test_boundary_check.py` 后 `scripts.test`
+        #     的真实计数变了(算法口径未动)。同批须同步 H9 变异锚点(TH:434),
+        #     否则 H9 走 STALE 提前返回、静默退化成空转(见 P16-R95-B)。
         "SUITE_FILES": len(set(re.findall(r"python\s+(tests/[A-Za-z0-9_]+\.py)",
                                           json.loads((REPO / "package.json").read_text(encoding="utf-8")
                                                      )["scripts"]["test"]))),

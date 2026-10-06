@@ -431,7 +431,7 @@ class TestMutationHarness(unittest.TestCase):
         # ② 行为:对**最后一个**参与文件做变异,必须**不抛异常**
         try:
             got = MH.run_case("H9_probe", MH.PRE_REG_REL,
-                              "SUITE_FILES = 35", "SUITE_FILES = 34")
+                              "SUITE_FILES = 36", "SUITE_FILES = 35")
         except Exception as e:                       # noqa: BLE001
             self.fail(f"run_case 对 {MH.PRE_REG_REL} 抛了 {type(e).__name__}: {e}")
         self.assertEqual(len(got), 4, f"run_case 返回形状不对:{got}")
