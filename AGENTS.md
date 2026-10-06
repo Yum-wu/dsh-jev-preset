@@ -1,6 +1,7 @@
 # dsh-jev-preset 工作区规则
 
-> 本文件只管**本插件特有**的约定;通用规则(沟通方式、红线、BOM 表)在 `~/.dsh/AGENTS.md`。
+> 本文件只管**本插件特有**的约定;通用规则(沟通方式、红线、自主边界)在 `~/.dsh/AGENTS.md`;
+> **BOM 表与其余本机运维硬规则已迁到 `Desktop\DeepSeekHarness\AGENTS.md`**(2026-10-07,只在该工作区自动注入)。
 > 使用者说明见 `README.md` / `README_EN.md`;设计取舍见 `docs/architecture.md`。
 
 ## 这是什么
