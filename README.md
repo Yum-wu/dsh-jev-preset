@@ -199,15 +199,21 @@ python $JEV --func tick_floor --args '{"raw_price": 67432.178, "tick_size": 0.01
 ## 🧪 自动化测试套件
 
 ```bash
-npm test              # Node 单元测试 + Python 33项断言与审计 + 双版本 PowerShell 兼容性测试
-npm run validate      # 校验 cordis.patch.yml 编排规范
+npm test                    # 全量（Node 单元 + Python 断言/审计/形状守卫 + 双版本 PowerShell 兼容性）
+npm run audit:evasion       # 跑 G5 规避审计，**并自动提交** docs/evasion-audit.log
+npm run audit:evasion:nocommit  # 同上但不提交（只看结果时用）
+npm run validate            # 校验 cordis.patch.yml 编排规范
+
+> ⚠ 为什么审计后必须提交：`tools/evasion_audit.py` 的防篡改基线读的是 `git show HEAD:docs/evasion-audit.log`。
+> 不提交 = HEAD 里的日志停在旧值 = 基线停滞 = 回退检测灵敏度逐轮衰减。该文件每轮 dirty 是设计使然，但必须每轮提交掉。
+> ⚠ 另：`npm test` 链里的 G5 门也会跑审计并追加日志，所以**跑完测试后它同样会 dirty**。
 ```
 
 ---
 
 ## 💡 开源致谢与前沿借鉴 (Acknowledgements & Prior Art)
 
-本预设早期把「自动化思考深度调节（Auto Reasoning Effort）」写进了 persona，要求模型自己在回复首行报一个 `Auto (<level>)` 审计标签。**2026-10-04 已删除该段**：标签是模型自估的，与真实档位无关（实测 12 轮里 4 轮档位不一致，11/12 一律说 `low`）。调节逻辑现由独立插件 `dsh-plugin-codemode`（本机 `Desktop/dsh-plugin-codemode`，不在本仓）在 `agent/request` 上**确定性算出并改写**，真实档位显示在输入框下方的 Auto 胶囊，可经 `GET /api/codemode.auto-effort` 读取。下列开源项目是该插件的设计来源：
+本预设早期把「自动化思考深度调节（Auto Reasoning Effort）」写进了 persona，要求模型自己在回复首行报一个 `Auto (<level>)` 审计标签。**2026-10-04 已删除该段**：标签是模型自估的，与真实档位无关（实测 12 轮里 4 轮档位不一致，11/12 一律说 `low`）。调节逻辑现由独立插件 `dsh-auto-reasoning`（**2026-10-05 从 codemode 拆出的独立插件**，<https://github.com/Yum-wu/dsh-auto-reasoning>）在 `agent/request` 上**确定性算出并改写**，真实档位显示在输入框下方的 Auto 胶囊，可经 `GET /api/auto-reasoning.effort` 读取。下列开源项目是该插件的设计来源：
 
 - **[luckeyfaraday/auto-reasoning](https://github.com/luckeyfaraday/auto-reasoning)** (MIT License): 借鉴了面向 Agentic AI 任务的确定性复杂度计分、固定模型防漂移阶梯以及全链路可追溯的审计事件流（`classified` / `effort_selected` / `effort_escalated`）设计思想。
 - **[ruban-24/switchboard](https://github.com/ruban-24/switchboard)** (MIT License): 借鉴了模型/思考度动态路由体系以及会话级 `Auto (<level>)`（如 `Auto (low)`、`Auto (medium)`、`Auto (high)`、`Auto (max)`）的状态感知表示约定。
