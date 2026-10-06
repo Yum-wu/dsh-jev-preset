@@ -92,7 +92,14 @@ def check_consecutive_repeat(rounds_text_path, window_size=3):
     return False, []
 
 def scan_rot_values():
-    """扫描 docs/*.md 与代码注释, 发现未豁免的疑似行号引用与写死真值。"""
+    """扫描 docs/structural-boundaries.md, 发现未豁免的疑似行号引用与写死真值。
+
+    边界(如实声明,勿over-claim):
+      - 只扫 docs/structural-boundaries.md 一个文件 —— 它是「必须完全去值化」的那份。
+      - docs/evasion-ledger.md 与 docs/self-optimize-rounds.md 是**历史台账**,
+        按设计**豁免**(它们的 file:line 是当时事实的记录,不是活引用)。
+      - docs/appendix-status.md 目前**不在扫描面内**(它是活状态表,行号引用靠 A8 查存在性)。
+    """
     violations = []
     re_lineno = re.compile(r"(\b[A-Z]{2,4}:\d+\b|\b[a-zA-Z0-9_\-]+\.(?:py|md|mjs|ps1|json):\d+\b|第\s*\d+\s*行|\bL\d+\b)")
     
@@ -126,7 +133,7 @@ def scan_rot_values():
 def main():
     parser = argparse.ArgumentParser(description="自优化循环边界门控与终止检查判据")
     parser.add_argument("--defect-report", type=str, help="红队报告原文文件或文本")
-    parser.add_argument("--scan-rot", action="store_true", help="执行文档与注释可腐烂面扫描 (R17)")
+    parser.add_argument("--scan-rot", action="store_true", help="可腐烂面扫描 (R17);只扫 docs/structural-boundaries.md,历史台账按设计豁免")
     args = parser.parse_args()
 
     # 1. 如果指定了红队报告原文, 检查是否落在已声明边界
