@@ -232,7 +232,7 @@ class TestMutationHarness(unittest.TestCase):
         #   红队实测:在 H5 的 `JEV_SELFCOUNT_INNER` 护栏**之外**插一个无条件 `return`
         #   ⇒ 内层照样 skip(被 `_COUNTER` 的 `counts.pop` 抹掉)⇒ H4/H6 双双 `rc=0`,
         #   **七条棘轮静默失效而两套件全绿**。R85 Step 2 复现:基线 0/0/0,掏空后 0/0/0。
-        #   ⚠ 边界:`os._exit(0)` 之类仍能绕过 —— **第十次「补一格」**,靠大 diff 评审(⚠ **本仓当前无此控制** —— 5 个自守链文件未被 git 跟踪,`git diff` 无输出)补位。
+        #   ⚠ 边界:`os._exit(0)` 之类仍能绕过 —— **第十次「补一格」**,靠大 diff 评审补位。
         # ⚠ R85 第 3 轮:实现搬到 `tools/mutation_harness.py`(**单一来源**),
         #   并同时由 `_selftest()` 第 ⑧ 条调用 —— 这里保留为**第二执行点**。
         early = MH._early_exit_methods(
@@ -344,8 +344,7 @@ class TestMutationHarness(unittest.TestCase):
         R105 已把该形态(B7)从 §三 **移到 §一**(判据类),此处未同步。
 
         ⚠ **边界(如实声明)**:结构可判的恒真式挡得住,`hash("x") == hash("x")`
-        这类仍能绕过。原写「靠大 diff 评审补位」,但 **本仓当前无此控制**
-        —— 5 个自守链文件未被 git 跟踪,`git diff` 无输出(与 C14 同族)。
+        这类仍能绕过,靠大 diff 评审补位(与 C14 同族)。
         ★ **R106 补回**(红队 R105 P26-R105-A):R105 手工删行时**误删了本句尾巴**
         「(与 C14 同族)。」并留下**孤立 `)`** —— 这是执行者**把自己插入的文本
         当成了原文**所致(见 R105 章 §4.1)。
@@ -431,7 +430,7 @@ class TestMutationHarness(unittest.TestCase):
         # ② 行为:对**最后一个**参与文件做变异,必须**不抛异常**
         try:
             got = MH.run_case("H9_probe", MH.PRE_REG_REL,
-                              "SUITE_FILES = 36", "SUITE_FILES = 35")
+                              "SUITE_FILES = 35", "SUITE_FILES = 34")
         except Exception as e:                       # noqa: BLE001
             self.fail(f"run_case 对 {MH.PRE_REG_REL} 抛了 {type(e).__name__}: {e}")
         self.assertEqual(len(got), 4, f"run_case 返回形状不对:{got}")

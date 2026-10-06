@@ -56,7 +56,11 @@ HARNESS_TESTS = 10
 #:   ⚠ 这**不是** R95 P16-R95-A 那次「把常量对齐到错口径的算法」—— 那次算法扫了整份
 #:   `package.json`(多算了 `scripts["test:mutation"]`),是算法错;本次算法口径未动
 #:   (仍只扫 `scripts.test`),变的是**被计数的对象**。
-SUITE_FILES = 36
+#: ⚠ 2026-10-07 36 → 35:退役 `tests/test_no_phantom_controls.py` —— 其前提
+#:   「承载自守链的 5 个文件未被 git 跟踪 ⇒ `git diff` 无输出」经实测为**假**:
+#:   5/5 均自 `1274cda` 起被跟踪,改一个字节 `git diff --stat` 即报 `1 file changed`。
+#:   该判据反过来**强制**仓内 6 个文件维持一句假声明 ⇒ 整条退役。
+SUITE_FILES = 35
 #: 被测套件断言总数下界。⚠ **这个「总数」本身不可复算、且单位失真**(红队 R82 P2-R82-F):
 #:   R81 记 **406**、R82 用文件自带的 `_COUNTER` 连跑两次逐用例计数 **IDENTICAL** 得 **407** ——
 #:   两数对不上;更要紧的是**单位**:1 条 `assertEqual('abc','abc')` 被记 **4** 次

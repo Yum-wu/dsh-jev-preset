@@ -97,7 +97,7 @@ SOURCE_DIRS = ("benchmarks", "packages", "tests", "tools")
 #: ⚠ **排除清单 = 移动即消音**(Round 65 红队实测的固有权衡,明写在此):
 #: 把文件**搬进** `EXCLUDE_DIRS` 里的目录 → 扫描不到它、`bad == []`、守卫判绿。
 #: 守卫只防「整个目录消失」,防不了「文件搬进排除目录」。`tmp_jev_path1`
-#: (43 个 `.py`)就是仓内现成的载体。**不靠代码兜底**,靠人工纪律 + 大 diff 评审(⚠ **本仓当前无此控制** —— 5 个自守链文件未被 git 跟踪,`git diff` 无输出)补位。
+#: (43 个 `.py`)就是仓内现成的载体。**不靠代码兜底**,靠人工纪律 + 大 diff 评审补位。
 
 
 def scan_syntax_warnings(root=ROOT, exclude=EXCLUDE_DIRS):

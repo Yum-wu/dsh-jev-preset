@@ -47,11 +47,3 @@ npm run validate
 | `docs/self-optimize-rounds.md` | **只追加**的轮次台账 |
 | `docs/appendix-status.md` | persona 附录逐条状态表 |
 | `tests/` | 元判据(计数 / 路径 / 编码)集中在此;套件数以 `tests/pre_registered.py` 的 `SUITE_FILES` 为准 |
-
-## ⚠ 已知过期声明(2026-10-07 实测)
-
-`tests/test_no_phantom_controls.py` 的 docstring 声明「承载自守链的 5 个文件**全部未被 git 跟踪** ⇒ `git diff` 无输出 ⇒ 大 diff 评审在结构上做不到」。
-
-**该声明已过期**:5 个文件(`tools/g_check.py` / `tools/mutation_harness.py` / `tests/pre_registered.py` / `tests/test_mutation_harness.py` / `tests/test_no_silent_skips.py`)自 `1274cda`(2026-10-04)起就被跟踪,`git status --porcelain` 干净,`tools/` 与 `tests/` 下无未跟踪文件。
-
-⇒ 改该文件前**先自己实测** `git ls-files tools/g_check.py`,别照抄 docstring。该判据只做子串存在性匹配,证明不了作者真想过兜底手段是否存在 —— 这一点它自己的「⚠ 边界」段已承认。
