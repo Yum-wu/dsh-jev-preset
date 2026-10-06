@@ -2,225 +2,222 @@
 
 [![CI](https://github.com/Yum-wu/dsh-jev-preset/actions/workflows/ci.yml/badge.svg)](https://github.com/Yum-wu/dsh-jev-preset/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Platform: DeepSeek Harness](https://img.shields.io/badge/Platform-DeepSeek%20Harness-black.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
-[English](./README_EN.md)
+> **English** | [简体中文](README.zh-CN.md)
 
-**面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的自适应交叉验证与客观真值护栏（JEV 架构）。**
 
-它解决大模型在软件工程、复杂逻辑推导与关键决策中的核心痛点：**拒绝自回归自嗨，让大模型在给出关键结论之前，先真跑代码/测试把事实跑对；遇到高危不确定性决策，通过物理隔离多路采样交叉验证。**
+An agent preset bundle for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH).
 
----
-
-## 💡 它解决什么（通用工程与多领域决策）
-
-大语言模型（LLM）在面对复杂任务时有三大经典失效模式：
-
-1. **算错/测错但表述极度自洽**：错误结论常被一段流畅且看似合理的推导逻辑包装，人工肉眼复核极难发现。
-2. **同会话多视角自欺（自回归污染）**：在同一个会话中让模型“分三个视角辩驳”，后文必定被前文的概率采样所锚定，并非真正的独立多路。
-3. **缺乏物理真值（Execution-First）**：代码改动未跑测试、数学公式未过解释器验证，无论语言多么自信，都是潜在的逻辑漏洞。
-
-JEV 架构将任务严格分级：**日常任务单次高速直出；确定性任务单路写出后必须真跑代码/测试验证；重大取舍与并发架构裂变为物理隔离的三路异构模型并行求解。**
-
-- **「先跑 20 条」不是一句承诺,是一个能跑的模块** —— `small_sample.py` 输出**预注册块**(`case_ids` + `sha256` + 覆盖度),第三方拿 `(suite, n, seed)` 可独立重建。
-- **准入规则要能防新增,不能只列一次性修复清单** —— T3 改成**棘轮**:遗留清单冻结、新增漏网即红、清单里修好一个也必须删一行(只往紧的方向转)。
+It does one thing: before the model commits to a numeric or risk-control answer, it runs real code once and checks the number.
 
 ---
 
-## 🚀 快速开始（安装）
+## What it fixes
 
-这是一个标准的 DSH bundle：一个 npm 包，携带一层 `cordis.patch.yml`，挂进 profile 的 loader 树。
+Single-session models fail on quantitative work in three ways:
 
-```bash
-dsh plugin --profile <你的 profile> add dsh-jev-preset
+1. **Wrong but fluent.** Bad numbers get wrapped in smooth reasoning that survives human review.
+2. **Autoregressive self-contamination.** Asking one session to "analyze from three perspectives" anchors later tokens on earlier ones — not real multi-path.
+3. **No physical ground truth.** A formula that never ran in an interpreter should not ship.
+
+- **"Start with 20 cases" is a runnable module, not a promise** — `small_sample.py` emits a **pre-registration block** (`case_ids` + `sha256` + coverage) that any third party can rebuild from `(suite, n, seed)` alone.
+- **Admission rules must stop new offenders, not just list a one-off fix** — T3 is now a **ratchet**: the legacy list is frozen, new offenders fail, and fixing a listed file also fails (the list only tightens).
+
+## Install
+
+A standard DSH bundle: an npm package carrying one `cordis.patch.yml` layer, mounted into the profile's loader tree.
+
+```
+dsh plugin --profile <your-profile> add dsh-jev-preset
 ```
 
-装完后校验配置层已生效（不必启动服务）：
+Verify the layer landed without booting:
 
-```bash
-dsh --profile <你的 profile> --dump-config
+```
+dsh --profile <your-profile> --dump-config
 ```
 
-预期能看到一行 `# == dsh-jev-preset`。然后启动 DSH 即可在会话预设列表里选到 **JEV 自适应交叉验证**。
+You should see a `# == dsh-jev-preset` layer. Then boot — **JEV Cross-Verification** appears in the preset list.
 
-卸载走同一入口：`dsh plugin --profile <你的 profile> remove dsh-jev-preset`。
+Remove the same way: `dsh plugin --profile <your-profile> remove dsh-jev-preset`.
 
-> 本 bundle 不声明任何 `dependencies` / `peerDependencies`，也不写死 DSH 版本号 ——
-> 声明行自带 `inject = ["agentPresets"]`，由 loader 等注册表就绪后激活，子插件路径由宿主
-> `@deepseek-ai/dsh-agent-preset` 的 baseUrl 解析。0.1.7 起实测可用，0.2.0-rc.2 上验证通过。
+> This bundle declares no `dependencies` / `peerDependencies` and hardcodes no DSH version.
+> The declaration row ships `inject = ["agentPresets"]`, so the loader activates it once the registry is ready,
+> and sub-plugin paths resolve from the host `@deepseek-ai/dsh-agent-preset` baseUrl.
+> Tested working on 0.2.0-rc.2.
 
-### 🔗 附属插件：自动思考程度（2026-10-05 起）
+## Gating: what happens when
 
-JEV 的三路隔离采样与结构化重算都以「按任务复杂度选思考档位」为前提 ——
-档位太低，断言算错没人发现。本 bundle 因此**顺带**把另一个独立插件挂进 loader 树：
+The model routes on its own; no user action needed.
 
-| | |
+| Task | Handling |
 |---|---|
-| 插件 | [`dsh-auto-reasoning`](https://github.com/Yum-wu/dsh-auto-reasoning) |
-| 关系 | **引用关系** —— 代码不并入本仓，由本 bundle 的 `cordis.patch.yml` 声明 |
-| 声明位置 | 与 `preset-jev` **同一个 insert 组**里的第二条声明行（`id: plugin-auto-reasoning`） |
-| 做什么 | 把模型配置里的 `reasoningEffort: auto` 哨兵，换算成该模型自己的合法档位 |
+| Everyday / low risk (lookup, Q&A, small single-file edits) | Fast-Pass, single shot |
+| Numeric, risk, position sizing, liquidation price, indicator math | **Single pass + real code re-check**; ship only if assertions pass |
+| High risk but no single numeric answer (security boundaries, concurrency, design tradeoffs) | 3-way isolated sampling |
+| Any of the above, but assertion/test fails | Do not ship. Fix the assertion first; escalate to 3-way only if it can't be fixed |
 
-> ⚠ **profile 的 `cordis.patch.yml` 不得再单独 insert `plugin-auto-reasoning`** ——
-> Loader entry id 重复会让 profile 起不来。`node validate.mjs` 会校验这条附属声明行。
->
-> ⚠ **连带取舍**：卸载 jev preset = 一并失去 auto 档位，思考档位回落到**模型默认档**
-> （不是 `high` —— 哨兵没了就没有任何人做换算）。
->
-> ⚠ **auto 只对新会话生效**。宿主 `dsh-agent` 的后置拾取器只认 session request header 里
-> 持久化的 UI 选择，改配置对已有会话无效。
+3-way is the fallback, not the default. See the numbers below.
 
-#### ⚠ 安装时必须带上 `dsh-auto-reasoning`
+## Measured results
 
-2026-10-05 起档位插件不再是 codemode 的一部分，**改由本 bundle 声明**。装 jev 时请一并装：
+All figures come from reproducible experiments under `benchmarks/accuracy/`.
 
-```bash
-dsh plugin --profile <你的 profile> add dsh-auto-reasoning
-```
-
-漏装的症状**不是报错，而是 profile 起不来**（Loader 解析不到 `dsh-auto-reasoning` 这个包名）。
-反过来，**profile 的 `cordis.patch.yml` 不得再单独 insert `plugin-auto-reasoning`** ——
-Loader entry id 重复同样会让 profile 起不来。`node validate.mjs` 会校验这条附属声明行。
-
-> ⚠ 若你的 profile 里 `plugin-codemode` 配了 `autoReasoning: true`，请删掉。
-> 该键已于同日从 codemode 移除；cordis 按整条 entry 校验配置，未知键会让
-> 整条 `plugin-codemode` 不激活，表现为「codemode 工具凭空消失」。
-
----
-
-## 🧭 门控决策：什么时候做什么
-
-模型按客观条件动态判定执行路径，无需用户人工介入：
-
-| 任务类型 | 范例场景 | 执行路径与仲裁规则 |
+| Method | Effect | Cost |
 |---|---|---|
-| **日常 / 低危** | 语法查询、常规问答、日志查看、单文件小改 | **Fast-Pass**：单次快速直出，不浪费额外算力 |
-| **确定性计算 / 逻辑推导** | 数值计算、参数推导、规则判定、数据转换、单元测试 | **单路作答 + 真跑代码复算**：客观断言通过才放行，代码结果压过文字自洽 |
-| **高危 / 架构决策** | 并发状态机、鉴权安全、重大重构方案取舍 | **裂变 3 路物理隔离采样**：派出 3 个异构子代理独立求解，由主线程重排裁决 |
-| **客观断言失败 / 语法异常** | 测试跑错、断言失败、数据不守恒 | **立即拦截**：先修复断言与数据，无法收敛时自动升级至 3 路采样隔离仲裁 |
+| Prompt structuring | +89pp (100% on 5/5 models) | ×1 |
+| **Execution assertion** | **24/30 → 30/30, McNemar p=0.0312** | ×2.0 |
+| Switch to a heterogeneous model | +89pp (some models) | ×5.4 |
+| 3-way isolated sampling | **Gain 0 (p=1.0)** | ×10.6 |
 
----
+**The assertion pass is the only statistically significant positive result in this repo.** Stacking 3-way sampling on top of an already-asserted answer adds nothing (30/30 vs 30/30, p=1.0) at 15.3× the cost, with a higher run-failure rate (2/12 vs 0/12).
 
-## ⚡ 真实实测数据对比（学术级基准）
+Why 3-way can't fix reading errors: on candy trap problems, all 5 wrong answers equal the "blind" value exactly — failures sit in the **information-extraction layer** (missed constraints). Voting reduces variance, not bias. Calculation problems are the opposite: errors are scattered arithmetic slips, which assertions do catch.
 
-所有数据来自本仓 `benchmarks/accuracy/` 下可复现的评测矩阵：
+> Retracted: the 30-problem batch `runs-c30-c3-sb.jsonl` (3.3% / p=1.0 / blind rate 33%) had 18/30 rows affected by a measurement bug — the runner scored before subagent settlement. The 9-problem batch is unaffected and still valid. Audit: `benchmarks/accuracy/MEASUREMENT-BUG-2026-09-30.md`.
 
-| 验证机制 | 准确率提升 | 边际成本 | 统计显著性 (McNemar) |
-|---|---|---|---|
-| **题干关键条件结构化** | +89pp（5/5 模型达 100%） | **×1.0** | 彻底消除审题漏读偏差 |
-| **执行断言真跑 (Execution-First)** | **24/30 → 30/30 (100%)** | **×2.0** | **p=0.0312 (统计学显著)** |
-| **换异构大模型** | +89pp（部分模型） | ×5.4 | 消除同款模型系统性盲区 |
-| **单纯同模型 3 路投票** | 增益 0 | ×10.6 | **p=1.0 (无显著增益)** |
+## Relation to published work
 
-> **核心结论**：**“执行断言真跑”是本仓唯一统计显著的正向提质手段**。若缺乏物理执行器检验，单纯在同会话中增加投票轮次只会增加 10 倍以上 Token 消耗，却无法纠正模型的先验理解偏差。
-
----
-
-## 🔬 业界研究对应与学术背书
-
-这些设计与前沿大模型工程研究高度吻合：
-
-| 理论维度 | 顶级学术文献 / 业界实践 | JEV 架构对应实现 |
+| Dimension | Source | Here |
 |---|---|---|
-| **采样必须配合验证器才有效** | [Large Language Monkeys](https://arxiv.org/abs/2407.21787) (UC Berkeley/CMU) | 强调代码断言优先（×2.0 显著，消灭无序盲投） |
-| **定势效应导致漏读上下文** | [MisguidedAttention](https://github.com/cpldcpu/MisguidedAttention) / Anthropic 2024 系统提示词改进 | §3.0 关键条件结构化诊断，准确率提升 89pp |
-| **多智能体从众趋同陷阱** | [arXiv:2605.00914](https://arxiv.org/html/2605.00914) / [arXiv:2503.13657](https://arxiv.org/html/2503.13657v1) | 3 路必须采用子进程物理隔离，严禁前文锚定上下文 |
-| **异构模型行为纠缠** | [arXiv:2604.07650](https://arxiv.org/abs/2604.07650) | 代码物理执行结果权重永远高于文字共识 |
+| Sampling converts to performance only with a verifier | [Large Language Monkeys](https://arxiv.org/abs/2407.21787) (UC Berkeley/CMU) | assertions ×2.0 significant; 3-way ×10.6 gain 0 |
+| Mindset effect causes missed constraints | [MisguidedAttention](https://github.com/cpldcpu/MisguidedAttention); Anthropic changed its system prompt for the same failure in 2024-10 | §3.0 constraint diagnosis, +89pp |
+| 85.5% sycophantic conformity in unisolated agents | [arXiv:2605.00914](https://arxiv.org/html/2605.00914), [arXiv:2503.13657](https://arxiv.org/html/2503.13657v1) | no answer-forward anchoring; `maxDepth:1` |
+| Heterogeneous models share latent entanglement; agreement ≠ independence | [arXiv:2604.07650](https://arxiv.org/abs/2604.07650) | execution result outranks 3-way consensus |
 
----
+## Assertion library
 
-## 🛠 内置标准断言库
+When the gate decides "this can be an assertion", reuse these instead of writing throwaway scripts — reuse removes the bugs and float drift of hand-written code.
 
-门控判定“可写成断言”后，优先复用本套断言库，避免临时手写脚本引入浮点漂移或实现 bug。
+Python: `packages/assertions/python/jev_assertions/`
 
-- **Python 端（全量 18 个核心断言）**：`packages/assertions/python/jev_assertions/`
-  - 涵盖数值截断对齐、阶梯维持计算、订单簿与滑点冲击、时区与日历切换、收益率复权等。
-- **PowerShell 端（轻量 3 个核心断言）**：`packages/assertions/pwsh/JevAssertions.psm1`
-  - 提供 `Assert-JevTickFloor`、`Assert-JevTieredMargin`、`Assert-JevSlippageBudget`。
+- `tick.py` — tick truncation, rounding direction, grid alignment, inverse contract lots
+- `margin.py` — tiered maintenance margin, quick deduction, linear/inverse liquidation price
+- `slippage.py` — orderbook VWAP, Almgren-Chriss impact, AMM slippage
+- `calendar.py` — DST transitions, monotonic clock regression
+- `split.py` — ex-rights price, forward-adjusted returns, reverse split factor
 
-⚠ **PS 面与 Python 面能力不对等，不要当成同一套用**：
-Python 面 **18 个**断言，PS 面**只有 3 个**（`Assert-JevTickFloor` / `Assert-JevTieredMargin` / `Assert-JevSlippageBudget`）——**其余 15 类判定在 PS 上不存在**。能用断言判定的结论，一律优先走 Python CLI；PS 面仅在纯 PowerShell 极简环境且只需这 3 类判定时使用。
+PowerShell: `packages/assertions/pwsh/JevAssertions.psm1` (PS 5.1 / 7, UTF-8 BOM)
 
-### 命令行调用规范与退出码契约
+⚠ **The PS surface and the Python surface are NOT equivalent** (fixed 2026-10-01):
+the Python side has **18** assertions; the PS side has **only 3**
+(`Assert-JevTickFloor` / `Assert-JevTieredMargin` / `Assert-JevSlippageBudget`) —
+**the other 15 assertion kinds do not exist on the PS side**.
+**Prefer the Python CLI below** whenever an assertion can express the check;
+use the PS module only when the environment is PowerShell-only and the
+check is one of those 3 kinds.
+
+Call all 18 assertions from the CLI.
+
+⚠ The path below is **relative to the plugin root** and only resolves when the
+current directory is `plugins/dsh-jev-preset/`. Copy-pasting it from the repository
+root (the default session cwd) yields `[Errno 2]`. Locate first:
 
 ```powershell
-# 1. 动态定位断言 CLI 入口
 $JEV = @(Resolve-Path "$env:USERPROFILE\.dsh\profiles\*\node_modules\dsh-jev-preset\packages\assertions\python\jev_assertions\cli.py" -ErrorAction SilentlyContinue | Sort-Object Path)[0].Path
 if (-not (Test-Path $JEV)) { $JEV = @(Get-ChildItem . -Recurse -Depth 5 -Directory -Filter jev_assertions)[0].FullName + '\cli.py' }
-if (-not (Test-Path $JEV)) { throw "断言库未找到($JEV)" }
+if (-not (Test-Path $JEV)) { throw "assertion library not found ($JEV)" }
+```
 
-# 2. 列出可用断言或执行判定
+```powershell
 python $JEV --list
+
 python $JEV --func tick_floor --args '{"raw_price": 67432.178, "tick_size": 0.01, "expected": "67432.17"}'
 ```
 
-**四值退出码契约（Exit Code Contract）**：
+> When `$JEV` is empty you **must** throw first: running `python $JEV --func ...`
+> degrades to `python --func ...`, which reports `unknown option --func` — easily
+> misread as "the assertion actually ran".
 
-| Exit Code | Status 状态 | 含义解释 | 正确处置动作 |
+**Exit-code contract (three values)**:
+
+| exit | status | meaning | action |
 |---|---|---|---|
-| **`0`** | `pass` | 断言物理验证通过 | 结果可信，放行结论 |
-| **`1`** | `fail` | 断言执行完毕，**计算/逻辑结果错误** | **拦截结论**，重新检查推导 |
-| **`2`** | `error` | **调用异常，根本未执行**（坏 JSON、缺参数、脚本内部错） | **严禁当作验证失败！先修命令再跑** |
-| **`3`** | `insufficient_data` | **输入数据不足以支撑判定**（如深度缺失） | **补充输入数据**，重算无意义 |
+| `0` | `pass` | assertion passed | release the conclusion |
+| `1` | `fail` | assertion ran, **the value is wrong** | do not release; recompute or escalate to 3-way |
+| `2` | `error` | **bad call, nothing ran** (missing `--func` / malformed JSON / parameter mismatch / unknown assertion / internal exception) | **fix the command first, then recompute** |
+| `3` | `insufficient_data` | **input cannot decide** (e.g. not enough order-book depth) | **supply more data, then rerun** — recomputing is pointless |
 
----
+> exit 2 matters most: no numeric conclusion exists at that point. Treating it as
+> "the assertion rejected my value" fabricates a verification that never happened.
+> exit 3 is the mirror image: the value is not wrong, the input is inadequate —
+> recomputing wastes effort. The contract is locked cell-by-cell by
+> `tests/test_cli_exit_codes.py`
+> (including the invariant `status == "error" ⟺ exit == 2`).
 
-## 🛡 系统边界：已落实的防线（和没有的）
+> The PowerShell `Assert-Jev*` module has **only two values** (failure = 1; missing
+> parameter / unknown function also = 1, the PowerShell convention) — no exit 2/3.
+> As noted above, it also exposes **only 3 functions**, far fewer than the 18 on the Python side.
+> On that surface, read the exception text to tell "wrong value" from "bad call";
+> the exit code alone cannot.
 
-已核实：
+## Defenses that exist (and ones that don't)
 
-- **递归阻断** `maxDepth: 1` — 子代理不可再派生，实测孙会话 0，触发抛 `SubagentDepthError`。
-- **服务私有隔离域** `isolate` — compaction / delegation 限定在独立 realm，`validate.mjs` 静态核查。
-- **断言库护栏逐条覆盖** — 护栏补测与变异测试（`mutation testing`）全量覆盖，通过反向与变异用例杜绝假绿。
-- **退出码契约四值互斥** — 四值退出码由单测逐格锁定，杜绝将调用错误误报为计算错误。
-- **18 项断言逐项 CLI 可达** — 每项都用一组经复算的正确值调用并要求 `status=pass`；18 项全部通过。
-- **跨实现一致性** — PS 面 3 个函数与 Python 侧算法与舍入严格对齐，由 C3 用例锁定。
-- **变异测试基础设施** — 判据入库在临时副本上变异验证，杜绝空转。
-- **G5 规避率全流程审计** — 建立预注册台账与规避监控脚本，严密监控模型违背指令的逃逸行为。
-- **结构性边界门控与循环终止判据 (Boundary Check & Termination)** — `tools/boundary_check.py` 提供机械化门控: 候选缺陷命中已声明结构性边界（B1–B7 / H1–H5）输出 `exit 3` 拦截; 连续多轮缺陷属于同一形态输出 `exit 4` 终止自优化循环; `--scan-rot` 提供文档与注释可腐烂值扫描 (R17)。
+> Refreshed 2026-10-01: 9 entries added to "present", 5 to "absent".
+> Based on Round 1–38 ledgers and two independent external red-team recomputes,
+> **not** on self-report.
 
-没有的（别当成有）：
+Present and verified:
 
-- **独立断路器** — 不存在。失败恢复由宿主 `@deepseek-ai/dsh-llm-retry` 提供，非硬件级独立断路器。
-- **角色互斥锁** — 不存在。三路角色唯一性靠 persona 提示词纪律，无操作系统级进程互斥。
-- **PS 面的完整覆盖** — PS 面只有 3 个函数，Python 面有 18 个，其余 15 类在 PS 上不存在。
-- **仓内真正的防篡改** — 不存在。台账审计依赖 Git HEAD 基线锚，非区块链去中心化防篡改。
+- **Recursion block** `maxDepth: 1` — subagents cannot spawn further; measured 0 grandchild sessions, engine throws `SubagentDepthError`.
+- **Isolated service realms** — compaction / delegation live in private realms; checked statically by `validate.mjs`.
+- **Per-guardrail coverage in the assertion library** — 5 of 28 `assert`s (budget penetration / min-notional / depth / non-positive adjusted price / tz fallback branch) could be deleted with all tests still green. Now covered and **mutation-verified** (`npm run test:mutation`).
+- **Four/five mutually exclusive exit codes** — `0` not-rising / `1` rising or persistently high / `2` malformed ledger / `3` insufficient sample / `4` rollback suspected. In JSON, `_ok` is **three-state** (`true` / `false` / `null`); `null` means "verdict unusable", not "you may continue".
+- **All 18 assertions reachable via CLI** — each is called with independently recomputed correct values and must return `status=pass`. The **count** in `--list` never implied callability.
+- **Input-domain validation** — 9 of 11 divisions in the assertion library had user-controllable zero denominators, and they were reported as "command error" (exit 2) instead of "data error" (exit 1) — **opposite** remediation actions. Fixed.
+- **Cross-implementation consistency** — the three PS functions used to return **different results** than Python (double floor error in `TickFloor`, wrong speed-calculation deduction in `TieredMargin`). Fixed and locked by the `C3` cases.
+- **Mutation-testing infrastructure** — `tests/mutate_guardrails.py` mutates a **TEMP copy** (never the repo in place) and treats "restore succeeded" as a hard failure.
+- **G5 evasion-audit chain** — pre-registered ledger + Wilson 95% + sample-size gate + "worst rate in window" criterion + **git HEAD baseline anchor** (`tools/evasion_audit.py`).
+- **Default-regression coverage** — **every** Python suite declared in `scripts.test`, plus **both PS7 and PS5.1**, runs inside `npm test`; includes a repo-wide encoding-damage (U+FFFD) scan and a repo-wide compile-time-warning (`SyntaxWarning`) scan. (This line used to carry a hard count, corrected every few rounds: 20 → 22 → 23 → 30 → 31 → 32 → 33 — and it had already drifted again by 2026-10-07. **The number was therefore removed**, per `docs/structural-boundaries.md` **B7**: a hard-coded value in prose rots because no judgement reads it. The authoritative count lives in `tests/pre_registered.py`'s `SUITE_FILES`, and `tools/g_check.py` cross-checks it against `scripts.test` itself via `_declared_suites()` / `_expected_suites()`.)
+- **persona / README vs code consistency** — "claimed vs actual" is test-backed: assertion counts, the exact function-name list, and the capability-asymmetry wording, across both READMEs.
+- **Gate judge distinguishes a declaration from a mention (Round 48)** — persona `cordis.patch.yml:38` promises "the **first line** must carry the route marker", but `extract_route` took the **first match anywhere**. So a sentence in the body like `我不会用 [JEV: 断言通过] 这条路` was judged correct on **14/17** gate questions (measured by red team `93f0497b` — the **largest** gaming surface in this family). Added `extract_declared_route` (first-line-start only; leading blanks, blank lines and paired `**` emphasis allowed) and switched the gate branch to it. Over 901 historical records, **output changes = 0**.
+  `extract_route`'s positional semantics are **deliberately left alone** — R4 measured that changing them flips **28** records (**25%** of real outputs put the marker off the first line), and it also feeds cost / arm classification, which would disturb the already-settled 3-path gain conclusion. `D13` in `tests/test_gate_no_route_evidence.py` pins this boundary.
+- **A complete "empty declaration" rule (Round 48)** — zero-width / invisible non-whitespace characters such as `[JEV: \u200b]` slipped past Round 47's `.strip() or None` (`'\u200b'.isspace() is False`). Now `_wellformed`: the route name must contain **at least one letter or digit** (`isalnum`; CJK counts). **No whitelist**, so "a newly added multi-path route is auto-accepted" still holds; all **26** distinct historical route values pass → **0** rejected.
+- **`npm test` is environment-independent (Round 48)** — every earlier "all green" claim depended on manually setting `PYTHONIOENCODING=utf-8`. In the **default** environment (gbk on this box) four assertions in `test_evasion_audit.py` fail on mojibake and the `&&` chain **breaks there**, so every later suite (including the new tests of that round) **never ran**. Both subprocess calls now pass `-X utf8`. Acceptance rule: **the number of `Ran ` lines must equal the number of suites** (the only executable guard against a silently broken chain).
 
----
+- **Declaration extraction's leading-character rule matches `str.strip()` (Round 49)** — the old regex used `^[ \t]*` (ASCII only) while the blank check used `line.strip()`, which accepts Unicode whitespace (`\u3000` ideographic space, `\u00a0` NBSP); a BOM (`\ufeff`) is not even stripped by `strip()`. **The mismatch caused false negatives**: a perfectly valid first-line declaration was judged "no declaration". **4 leading characters** killed it (measured by red team `0354a970`). Now `^\s*` plus stripping leading invisible characters, and **strip before the blank check** (the reverse order misfires).
+- **Tests no longer use the system under test as the oracle (Round 49)** — `D12` used `grade_case(...)["route"]` to decide *which* cases to assert (`if is_three_path(got) is not want: continue`). Consequence: **the more broken the criterion, the greener the test.** The measured escape hatch is a **class flip** (a three-path name classified as single-path): old D12 **rc=0 all green**, new D12 **rc=1 red**. Expectations now come from the fixture; the extractor's return value only decides pass/fail.
+- **`extract_route`'s contract is pinned value by value (Round 49)** — `D13` only asserted "those 10 mentions are still extracted", which **cannot detect an internal filter change**: I added `_wellformed` to it and D13 stayed green — false assurance, and it made my written claim "the shared extractor is untouched" **false**. Now pinned value by value (10 positional + 10 well-formedness cases).
 
+- **R4 guard: a criterion must first prove it measured something (Round 50)** — the new encoding criterion contains a line that looks redundant: `any(b > 127 for b in raw)` (the output must actually contain non-ASCII bytes). The reason is that **gbk and UTF-8 agree exactly on pure ASCII** — without it, the day a tool emits English only, the criterion would go **green while measuring nothing**. Such an idle criterion is worse than a missing one: it looks like it guards something.
 
-## 🧭 自优化轮次(R68 起)
+- **S1's single authoritative source is now guarded (Round 51)** — `docs/appendix-status.md` is the only authority for the stop condition "every appendix A/B/C item has an explicit status", and it had **no criterion at all**. This round found three layers: ① the file says "**`未处理` is not a legal status**" but nothing enforced it; ② the legend declared **4** legal statuses while the table used **7** — the "partial" meaning had **three spellings** (`部分已修`/`部分修`/`半修`); ③ the "S1 verdict" section was stale (claiming Round 45 while the table had reached Round 50) and gave a **contradictory** reason for C5. Guarded by `tests/test_appendix_status_table.py` A1–A7: item completeness / every row has a status cell / closed status vocabulary / banned values absent / falsifiability / ascending item numbers within a letter / verdict section not stale. **The legend is now a closed set, not prose.**
+- **A criterion must be falsifiable, not merely "currently compliant" (Round 51)** — A5 does not just assert "nothing violates the rule now"; it **manufactures a violation in a mirror** and requires the criterion to go red. Without it, A1–A4 passing only means the file happens to be compliant right now, not that anything guards the rule. The same move was done wrong in Round 50's T2 (deleting a line produced a `SyntaxError`, mistaking a syntax crash for behavioural falsification); this round deliberately avoids that trap.
 
-> ⚠ **本节在 Round 79 被发现整段缺失**(README_EN.md 有 8 条,README.md 0 条),**没有任何判据守着文档内容**。权威轮次记录在 `docs/self-optimize-rounds.md`。
+- **A criterion must not depend on the host environment (Round 54)** — `tests/test_small_sample.py` asserted "the selected 20 cases are the same three times", but the selection key used `hash()`, whose value for `str` is **randomized per process** (`PYTHONHASHSEED`). In the **default** environment the test was red; under **any** of four fixed seeds (`0` / `1` / `7` / `12345`) it went green — i.e. the criterion was decided by an env var nobody controlled, and "green" meant only "this box happens to be unrandomized right now". Fixed by making the environment an explicit parameter (`_env(hashseed=...)`), driving S1 with three **deliberately different** seeds and requiring the child process to **self-report** `pythonhashseed` as `["0","1","2"]` (end-to-end delivery evidence, not an assumption), plus S8 (falsification under a fixed seed) and S9b (child self-reports its env). The pre-registration record now also carries `pythonhashseed`, so a third-party recompute can tell whether a differing `sha256` is a real content change.
+- **G1–G5 no longer go through a shell (Round 54)** — `python ... | Select-String | Select-Object -First 1` followed by reading `$LASTEXITCODE` returned **0** when the true code was **1**: `-First N` truncates the pipeline, so the upstream native command's exit code is **never recorded** and `$LASTEXITCODE` keeps the **previous** command's stale value (does not reproduce on small output; on large output it also comes back empty). The five gates are now consolidated in `tools/g_check.py`, which runs every step through `subprocess.run(capture_output=True)` — **no shell, no PS redirection** — and resolves `npm` via `shutil.which` (on Windows it is `npm.cmd`). G4 counts `--list` items with `len(json.loads(out)["assertions"])` (**18**), not by counting non-empty lines (which reported 115).
 
-- **R73–R76:「凡在两台账上取值巧合一致的变异,全部不可见。」** 四轮连续收口,每轮都被红队当场证明**还差一层**。**R73** 把鉴别力从一个变异类推广成**预注册矩阵**(6 类 × 5 数 = 30 格,集合完全相等才算过)—— 红队立刻给出 2 条【严重】:聚合方向(`sum`→`len({结算轮})`)与放宽方向(`n<1 or n>9999`)**全套件 `Ran 24 OK`** 而值真的算错。**R74** 加**第三张台账**(形状刻意不同:同一轮内两条**同值**不可解析行、一条 `结算轮=100000`、同一轮多条同轮行)→ 聚合四连 **4/4 真检出**;⚠ 我第一版把两条不可解析行放在**不同轮** → 照样全绿 —— 根因 `build_report` **按轮**算完再求和,**聚合变异只有在同一轮内有重复值时才露馅**。**R75** 把人类面断言从 `assertIn("… 4 条")`(红队证明它**既过严又过松**)改成**数值正则 + 三张台账全钉**。**R76** 修**自洽循环**:`backfilled_evaded` 的期望值**取自生产自己的 JSON** ⇒ 恒等,红队 N1b(`min(1,sum)` 按轮封顶)全套件全绿而真值 99 被报成 23 —— 现改为**独立重算 + 预注册常量**;`re.search` → `re.findall` 且断言**恰好命中 1 处**。⚠ **未修**:F-4 规则同源、真台账四数零守卫、跨运行漂移(需**外部锚**)。⚠ **记账缺口**:红队 R75 查出**台账只到 72、rounds 文档里搜不到 R73/R74** —— R76 补记。**「靠记性堵不住,只能靠机制」第六次实例。**
-- **R78–R79:变异判定框架本身 —— 崩溃 ≠ 检出。** 红队 R77 反证我一条声称,我复核跑出 `rc=1` **看似红**,但 `Ran 25 tests in 1.7s` **快得反常** —— 追下去:**25 条全是 ERROR,直接跑审计报 `SyntaxError`**。根因:**我的变异锚点是「多行 f-string 的第一物理行」**,插在它后面会切断语句拼接;而我的判定只看 `rc != 0 and "Ran " in out` ⇒ **把崩溃记成了检出**。红队 R78 进一步实测:崩溃会产生 `Ran 25 tests` + **13 条真 `FAIL:` 行**。**这正是本仓老病「我跑了变异 ≠ 我跑到了该跑的那条」的第三次复发。** 修:三分(崩溃/等价/真检出)做成机制 `tools/mutation_harness.py`(**在仓内**,带判据自检与沙箱路径护栏)。⚠ 红队随即抓到**这个新框架自己的两个 bug**:① 预检 grep `Traceback` 误伤 `tests/`(**unittest 的 FAIL 块本身就含这一行**)⇒ 把真检出改判成崩溃;② `classify` 对**测试数完全免疫**。均已修 —— **但「用例被阉」仍不可见**。另:归一化改按 **Unicode 字符类别**剥 `Cf`/`Mn`(**类别规则,不是清单**),堵住 U+00AD;⚠ 繁体 `條`、汉字数字、词分隔 `共` 这类**语义同形**仍能绕过。**「靠记性堵不住,只能靠机制」第七次实例。**
+- **A hard-coded "current value" in docs is a false fact unless something guards it (Round 58)** — `docs/FINAL-CONCLUSIONS.md` stated `A5 self-catch rate 2/9` (the real value was long since 11/37) and `20 Python suites` (real value 28) **in the present tense, with nothing watching them**; and the `g_check` output pasted verbatim in `docs/self-optimize-rounds.md` §9 **went stale once (9/35 → 10/36) and again immediately after being corrected in place**. The fix is not a new number: §9 now carries a **structural skeleton** (placeholders) guarded by `tests/test_rounds_doc_snapshot.py` — **seven** classes of stale-prone numbers (T2), a non-empty region (T1b, which blocks the "empty region makes the criterion vacuously green" trap), and **T3 instantiating every pattern** in a mirror (deleting any one pattern's regex now goes red; testing only one pattern did not — measured by red team). Four spots in `docs/FINAL-CONCLUSIONS.md` became round-scoped records or lost their hard-coded numbers, and two tables gained an explicit measurement-basis note. **Still open**: the remaining "not yet stale but will be" counts in both READMEs and `docs/FINAL-CONCLUSIONS.md` (the README itself already says that number has no test behind it).
 
-## 🧪 自动化测试套件
+- **The "silent failure" class now has a guard (Round 59)** — Python does not error on `{'a': 1, 'a': 2}`; the later key silently overwrites the earlier one. In `benchmarks/accuracy/jevbench/grading.py`, `compare()` listed `n11/n10/n01/n00/agreement/n_gate_excluded` **twice** — both times with identical values, so **no test ever went red**. The real hazard is the next edit: change only the first copy and the change is **silently lost while every test stays green**. The duplicates are gone (7 scenarios × both versions compared key-by-key, all values identical) and an AST guard now exists (`tests/test_no_duplicate_dict_keys.py`, 7 cases, scanning all 123 Python files in the repo). **Coverage is stated honestly**: only **statically evaluable** keys (constants compared by **runtime identity** — `repr` cannot tell `{1:…, 1.0:…}` apart), plus tuples, unary minus, constant expressions, placeholder-free f-strings, and the inner literal of a `**` unpack. **Not covered**: variable keys, the `dict()` call family (a TypeError under CPython, not a silent overwrite), and data-layer JSON — all three pinned by the D6 characterisation test, so fixing one turns it red.
 
-```bash
-npm test                    # 全量（Node 单元 + Python 断言/审计/形状守卫 + 双版本 PowerShell 兼容性）
-npm run audit:evasion       # 跑 G5 规避审计，**并自动提交** docs/evasion-audit.log
-npm run audit:evasion:nocommit  # 同上但不提交（只看结果时用）
-npm run validate            # 校验 cordis.patch.yml 编排规范
+- **`OK` does not mean "verified" — the skip channel now has a guard (Round 60)** — `unittest` returns **exit 0** even when tests are **skipped**, printing `OK (skipped=N)`; but G1/G3 in `tools/g_check.py` used `ok = (rc == 0)`, so "3 tests were skipped" and "everything was verified" were **indistinguishable** (and the `Ran N lines` in the detail was only a **suite** count, yet read like "everything passed"). Fixed: `g_check` gained `_skip_total()`, and G1/G3 now require `rc == 0 and skipped == 0`; a new `tests/test_no_silent_skips.py` (7 cases) requires **every** skip channel under `tests/` to be **declared** with a reason, with the allowlist itself checked for rot. **Measured: all 5 skip channels are currently dormant** (tzdata present, junctions creatable, PS5.1 installed) — a **latent** defect, not an observed false green. Mutation 5/5 caught: with one **declared** skip injected, `npm test` still returns `exit=0` while `g_check` reports `!! G1 ... skipped 1` and exits 1. **Round 61 closed out the red team's 7 findings**: the detector now only recognises **qualified forms** (`self.skipTest` / `@unittest.skip*`, eliminating 4/6 false positives); the allowlist key changed from "file + 4-line text window" to "**file + enclosing method + the skip site's own source segment**" (closing the retargeting bypass of deleting a declared skip, adding a new one elsewhere, and stuffing the old fragment into its window); S1 now compares **multisets** (guards against copy-pasted identical skips); and S6 changed from an **AST check** to a **behavioural assertion** (monkeypatching `_run` with synthetic output) plus S6b **proving its own discriminating power** (the old AST check stayed green against the `_skip_total("")` mutant). Cases 7 → 10, **mutations 13/13 caught**. **Still open and registered**: G1/G3 do not validate output shape (wrapping/filtering/no-op runs still fool them — appendix C12). Separately, this round **empirically refuted** "line endings must be LF" as a fix tar... (line truncated to 2000 chars)
 
-> ⚠ 为什么审计后必须提交：`tools/evasion_audit.py` 的防篡改基线读的是 `git show HEAD:docs/evasion-audit.log`。
-> 不提交 = HEAD 里的日志停在旧值 = 基线停滞 = 回退检测灵敏度逐轮衰减。该文件每轮 dirty 是设计使然，但必须每轮提交掉。
-> ⚠ 另：`npm test` 链里的 G5 门也会跑审计并追加日志，所以**跑完测试后它同样会 dirty**。
-```
+- **"Green" does not mean "something actually ran" — G1/G3 now validate output shape (Round 62)** — the Round 61 red team measured that under 5 output transforms (`WRAP` prefixing every line / `FILTER` swallowing the summary line / `EMPTY` output / all `Ran 0 tests` / a no-op script) **both G1 and G3 stayed green**, because the criterion only read `rc` and `skipped` and **never checked that the output contained anything at all**. This is the "**idling criterion**" family: the criterion looks like it guards something while feeding its guarded object **zero input**. Fixed: `tools/g_check.py` gained `_unittest_shape()` (suite count / total tests / verdict-line count), and `g1` now requires `rc == 0 and skipped == 0 and expected >= 1 and suites == expected == declared and tests_total >= suites and verdicts == suites`, where `expected` is **self-anchored to the `tests/` filesystem** and `declared` is **self-anchored to the `package.json` `test` script** (counting only segments that start with a python interpreter and *end* with a test file that really exists) — **no hard-coded numbers**, since a hard-coded number goes stale and a stale number has nothing guarding it. Both regexes are anchored to **whole lines** and ANSI escapes are stripped before parsing. New `tests/test_g_check_actually_ran.py` (10 cases, including **behavioural assertions** and mutation-based **self-proof of discriminating power**). **Two red-team rounds**: the first judged it **【not sound】**(6 new bypasses + 2 classes of **real false positives**), driving 5 hardening changes; the re-dispatch judged it **【partially complete】**(all 5 hardening changes verified effective, plus a new "path embedded in a string" forgery and an ANSI false positive), driving 2 more. **Mutations 12/12 caught**; product-side A/B: after really replacing the `package.json` `test` script with `echo ok` and running the real `npm test`, **the old criterion returned `ok = True` (fooled) while the new one returned `ok = False` (bloc... (line truncated to 2000 chars)
 
----
+- **"No error" does not mean "no problem" — compile-time silent defects now have a guard (Round 63)** — the whole repo produced **2 `SyntaxWarning`s** at compile time (unescaped `\d` / `\^` inside the docstrings of `tests/test_no_unsupported_claims.py:71` and `tests/test_pass_k.py:2`), and they had **sat there for 29 rounds** — because CPython only warns, **execution is unaffected**, so nothing went red and no reported number changed; yet what they pollute is exactly **the docstrings that carry conclusions**: a reader cannot tell from the text whether `\d` is "the regex `\d`" or "a swallowed backslash". The fix is **not** escaping them one by one — CPython reports only the **first** invalid escape per string, so fixing what the error names never finishes; the correct fix is making the whole docstring raw (`r"""`). The guard was attached to the **existing repo-wide static-scan family** `tests/test_no_encoding_damage.py` (E1 = U+FFFD) as **E3** (walk + `compile()` + capture `SyntaxWarning`/`SyntaxError`), **E3b** (self-proof of discriminating power, plus a **falsifiable** anti-idling guard) and **E3c** (meta-criterion: case count **and named cases**) — **no new suite**. **Both red-team rounds judged it 【partially complete】**: the first reported that **E3 itself was an idling criterion** (once the walk count drops to zero, `bad == []` is vacuously true — the very pit C12 had just fixed, stepped into again with a different criterion), plus `.pyw`/`.pyi`/uppercase-extension escapes and junction escape; after hardening, the re-dispatch confirmed all 4 holes were closed and reported **`.pyi` with zero coverage**, **E3c bypassed by renaming** (counting only the `test_` prefix means renaming `test_E3b` instead of deleting it keeps the count intact and the meta-criterion fully green — **"guards against deletion" is not "guards against disappearance"**), and **`_inside` comparing a raw string prefix, letting sibling directories in**. All three were fixed. **Mutations 9/9 caugh... (line truncated to 2000 chars)
 
-## 💡 开源致谢与前沿借鉴 (Acknowledgements & Prior Art)
+- **"Fixing one instance" is not "fixing a defect class" — meta-criteria moved from a count to a named list (Round 64)** — Round 63 found in `tests/test_no_encoding_damage.py::E3c` that a meta-criterion counting the `test_` prefix **guards against deletion but not against renaming**: renaming `test_E3b` to another name starting with `test_` leaves the count unchanged, keeps the meta-criterion fully green, and the protected case has already disappeared. **Round 63 fixed that one file and never ran the sweep.** Round 64 did: **6 files in the repo carry a meta-criterion, and 5 had the same disease** — exactly the failure mode this repo has recorded before, "**scoping a fix by directory (one file) instead of by defect class**". The fix: all 6 files replace `EXPECTED_CASES = N` with a `CASE_NAMES = (...)` named list plus `assertEqual(sorted(loaded), sorted(CASE_NAMES))` — now **bidirectional** (delete / rename / add all go red), and it retires a **number that goes stale** (it went stale immediately: `_real_output(n_suites=31)` in `test_g_check_actually_ran.py` turned three cases red once the new suite was wired in; it now self-anchors to `_expected_suites()`). New `tests/test_meta_criteria_bind_to_names.py` — a **cross-file behavioural criterion**: for every file carrying a meta-criterion it applies a **source-level** mutation (rename / add), reloads it, and **actually calls** that meta-criterion, which must raise `AssertionError`; `M3` guards against idling and `M4` requires mutants to be semantically intact (**a crash is not a catch**). **Mutations 11/11 caught.** **The red team judged this 【partial】 and all three findings were fixed**: (1) `M2` ("an added case must be caught") **was a vacuous criterion** — it went red for the named-list version **and** for the old count-only version (adding a case necessarily changes the count), so it had zero discriminating power; it was **deleted** rather than kept to pad the count. (2) `M3` used a **lower bound** `MIN_META_FILES = ... (line truncated to 2000 chars)
 
-本预设早期把「自动化思考深度调节（Auto Reasoning Effort）」写进了 persona，要求模型自己在回复首行报一个 `Auto (<level>)` 审计标签。**2026-10-04 已删除该段**：标签是模型自估的，与真实档位无关（实测 12 轮里 4 轮档位不一致，11/12 一律说 `low`）。调节逻辑现由独立插件 `dsh-auto-reasoning`（**2026-10-05 从 codemode 拆出的独立插件**，<https://github.com/Yum-wu/dsh-auto-reasoning>）在 `agent/request` 上**确定性算出并改写**，真实档位显示在输入框下方的 Auto 胶囊，可经 `GET /api/auto-reasoning.effort` 读取。下列开源项目是该插件的设计来源：
+- **A "count lower bound" proves nothing about coverage — anti-idling guards now bind to a named directory list (Round 65)** — this repo has a class of guard whose only job is "prove I really scanned something", without which the criterion it protects is vacuously true on empty input. It used to be expressed as a **number**: `assertGreaterEqual(len(scanned), 50)`. Measured across three instances (real / bound / margin): **83 / 50 / 40%**, **126 / 100 / 21%**, **33 / 25 / 24%**. **The hole is not that the bound is too low — it is that a bound cannot prove coverage at all**: the structural self-check in `tests/test_no_encoding_damage.py` looked at only **two** directory names, `tests` and `tools`, while there are really **four** — deleting `packages/` (7 sources) or `tools/` (3 sources) outright still left the total ≥ 50, so it **went green**; deleting `benchmarks/` (39 sources, 47%) dropped the total to 44, **just barely** stopped by the bound — **pure luck, and a slightly looser bound would have missed it**. The fix: bound → a **named directory list** (`SOURCE_DIRS`) that must be fully covered, and the falsifiability sample changed from "make up a fake directory" to **"remove each top-level directory that actually appears in the scan, one at a time"**. **Coverage must come from identity, not from numeric margin.** **Mutations 6/6 caught**, and one of them **caught me**: the per-directory loop in `tests/test_no_duplicate_dict_keys.py` iterated over `SOURCE_DIRS` **itself** — **the anchor was the guarded object** — so when the list shrank the loop shrank with it and `SOURCE_DIRS = ("tests",)` still went fully green; iterating over the **directories that actually appear in the scan** closed it. ⚠ Same round, same defect, **two different spellings in two files** — **only mutation separated them; reading the code did not**. **A second finding fell out**: that same per-directory check showed `tests/test_no_duplicate_dict_keys.py` was treating a **temporary directory** in ... (line truncated to 2000 chars)
 
-- **[luckeyfaraday/auto-reasoning](https://github.com/luckeyfaraday/auto-reasoning)** (MIT License): 借鉴了面向 Agentic AI 任务的确定性复杂度计分、固定模型防漂移阶梯以及全链路可追溯的审计事件流（`classified` / `effort_selected` / `effort_escalated`）设计思想。
-- **[ruban-24/switchboard](https://github.com/ruban-24/switchboard)** (MIT License): 借鉴了模型/思考度动态路由体系以及会话级 `Auto (<level>)`（如 `Auto (low)`、`Auto (medium)`、`Auto (high)`、`Auto (max)`）的状态感知表示约定。
-- **[@pixu1980/pi-reasoning](https://pi.dev/packages/@pixu1980/pi-reasoning)**: 借鉴了轻量级状态指示器与阶梯状态定义。
+- **"Fixing one function" is not "fixing one defect class" — a junction escape was fixed in only one of three scanners (Round 66)** — on Windows a **junction is not a symlink**: `os.path.islink(junction)` is **`False`**, and both `os.walk(followlinks=False)` and `pathlib.Path.rglob` **follow it**, pulling files from outside the repo into the scan. ⚠ **"cycles hang it" is wrong**: the red team measured that on this machine (Win + CPython 3.12.7) an **in-repo** junction cycle makes both `walk` and `rglob` **terminate finitely** (the Windows kernel caps reparse resolution per path at 32 → `ERROR_CANT_RESOLVE_FILENAME`, which both silently swallow, yielding just 64–66 duplicate paths) — I wrote "hang" in **three places** in the first draft, an **unverified comment**, caught the same round. **Pruning's justification is "escaping the root", one reason, and it suffices.**
 
----
+- **R73–R76: "Every mutant whose value coincides on the two ledgers is invisible."** Four rounds of closing the loop, and each round the red team proved one layer was still missing. **R73** generalised discriminating power from a single mutant class to a **pre-registered matrix** (6 classes × 5 numbers = 30 cells; the set must be *exactly* equal) — and the red team immediately produced two **serious** counterexamples: aggregation (`sum` → `len({round})`) and widening (`n<1 or n>9999`) both left the suite **`Ran 24 OK`** while the value was genuinely wrong. **R74** added a **third ledger** with a deliberately different shape (two **same-valued** unparseable rows *in the same round*, a `round=100000` row, several same-round rows) → the four aggregation mutants are now **caught 4/4**; ⚠ my first version put the two unparseable rows in *different rounds* and stayed fully green — because `build_report` sums **per round**, so **an aggregation mutant only shows itself when one round contains duplicate values**. **R75** replaced the human-face assertion `assertIn("… 4 条")` (the red team proved it was **both too strict and too loose**: a same-valued literal passed, deleting one space went falsely red) with a **numeric regex pinned across all three ledgers**. **R76** fixed the **self-referential loop** the red team found: `backfilled_evaded`'s expected value was read from **production's own JSON**, so it was an identity; the red team's N1b (`min(1,sum)` per-round capping) left the whole suite green while the true value 99 was reported as 23 — it is now **independently recomputed + pre-registered as a constant**, and `re.search` became `re.findall` asserting **exactly one hit** (adding one same-worded output line used to be enough to bypass it). ⚠ **Not fixed**: F-4 rule-same-source (needs a second independent rule set), the real ledger's unguarded numbers, and cross-run drift (needs an **external anchor**). ⚠ **Bookkeeping gap**: the red team found the ledger stopped at round... (line truncated to 2000 chars)
+- **R73–R79.** Four rounds of closing the "every mutant whose value coincides on the two ledgers is invisible" gap (R73 pre-registered 6-class x 5-number = 30-cell matrix; R74 a third, deliberately differently-shaped ledger; R75 numeric-regex pinning of the human face across all three ledgers; R76 killing the self-referential `backfilled_evaded` expectation and making the human-face uniqueness check exact). **R78-R79 then fixed the mutation-verdict framework itself**: my R77 "4/4" was fake because the anchor was the first physical line of a multi-line f-string, so the mutants were **SyntaxErrors recorded as detections**. The crash/equivalent/detection trichotomy is now a mechanism (`tools/mutation_harness.py`, in-repo, with a verdict self-test). The red team immediately caught two bugs in that framework itself (a `Traceback` pre-check that misfired on `tests/`, and immunity to the test count); both fixed, though a neutralised test case remains invisible. Unicode category `Cf`/`Mn` stripping replaced character enumeration, but **semantically identical** forms still bypass it. Still unfixed: F-4 rule-same-source, the real ledger's unguarded numbers, cross-run drift (needs an **external anchor**). **"Memory cannot plug it; only mechanism can" - sixth and seventh instances.**
+- **R72: "Patching one cell is not plugging the hole" — non-zero is not discriminating power.** The R71 red team said "on the real ledger `settle_unparseable ≡ 0`, and **a constant-zero quantity has no discriminating power**". In R72 I added a synthetic ledger where **all four numbers are non-zero**, and the red team showed that is **still not enough**. **One line of editing silently disarms it**: `backfill_unlabeled`'s only source of discriminating power in the whole suite is the synthetic table's **single row `f`** (upheld + same round + unlabelled), while all 23 unlabelled rows on the real ledger are **"evaded"** rows → the real ledger has **zero** power on that axis; flipping `f` from `成立` to `规避` (**all four numbers unchanged at 2/4/2/1**, self-check passes) plus production mutant M3 → **`exit=0 Ran 24 OK`**, while the production code **is still broken** (run it on the original table: unlab reports 1, true value 2). **"All non-zero" guards against a number going to zero, not against a number losing its discriminating power.** ⚠ Worse: that "all four non-zero" self-check reads the helper's `want`, and the helper is **rule-same-source** with production (C23's F-4) → when **production and helper are narrowed together** the self-check **fails with them**; it is not an independent second anchor. ⚠ Also: **non-zero ≠ the domain was sampled** — the synthetic table covers only **6/16** of the four-dimensional space, `settle_unparseable`'s 8 combinations are covered **once**, and the `n < 1` channel is **never walked** (mutant M5 leaves the synthetic table unmoved but is caught by `test_A11d`, so it is not a suite hole). **Fix**: the expected values became a **pre-registered constant** `SYNTHETIC_A11_EXPECTED` (R9, **not recomputed from the helper**) plus a new **discriminating-power structural check** `_synthetic_discrimination()` — "has discriminating power" is now **executable**: for each number it requires **full-total value ≠ evaded-rows-only value**, and equality ... (line truncated to 2000 chars)
+- **R71: "Objective" was derived from self-reported fields, and a constant-zero quantity has no discriminating power.** In R70 I added `A11b` (count of unparseable settle rounds) and claimed it made the zeroing channel "no longer silent". The red team disproved that **immediately**, on **two independent grounds**. **(a) The zeroing channels went from one to two, and the new one is quieter**: `int()` parsing is not validity — with `结算轮` set to `0` / `-1` / `999999` / `3_0` (=30) the objective count still collapses to zero while `settle_unparseable` stays **0** and the exit code is unchanged; `—` is now reported, `0` is not. **I traded one silent channel for two.** **(b) Those two numbers are not "objective" at all**: they derive from `状态` (evaded/pending) and `结算轮`, **both written by me** — flipping one genuinely violating row's `状态` to "pending" made **all three counts collapse to zero** with the exit code unchanged. R69's F-C only said "conflated properties"; **F-2 shows it is far stronger: I can zero the entire signal.** ⚠ Same-source problem: `test_A11c`'s `_independent_a11` is **implementation-independent but rule-same-source** (same ledger, same rules) → under a rule-level bypass both sides collapse **together**, structurally undiscoverable; and on the real ledger that quantity is `≡ 0`, so **a constant-zero quantity cannot give a "shrink it" mutant any discriminating power** (the red team's M-e mutant left the whole suite green while a true value of 1 was reported as 0). **Fixed**: the domain now covers "unparseable **or invalid (`< 1`)**"; the human-readable wording now says "a zero here does **not** mean the signal above is complete: `状态` and `结算轮` are **both self-reported fields**"; `test_A11d` covers `0` / `-1`. **Not fixed**: anchoring `状态`/`结算轮` externally (no in-repo answer), parameterising `test_A11c` with synthetic ledgers, and the same-source rule problem (needs a second independent rule set). ⚠⚠ **The red team also caught the same mistake I made two... (line truncated to 2000 chars)
+- **R70: A window is not a guarantee — a local check was presented as a global property.** What the R69 red team rated **critical** was "the version the red team audited ≠ the final version". In R70 I added A12 (compare ledger digests at two points within a run; drift ⇒ exit 2), and **the red team showed it does not fix that problem**: A12 covers only the window inside a single run, between `parse()` and `build_report()`. It produced **three counterexamples with unmutated production code** — ① the ledger is changed to "all held" **during `parse()`** and restored before it returns → both independent reads see the original, while `parse` consumed the modified content (**`evaded_total=0`, true value 104**), yet **the reported sha equals the on-disk sha** → a recomputer replaying that sha gets 104, not 0, **exactly the R69 form**; ② changed after the second read → JSON reports the old digest while the log records the new one; ③ changed **between two runs** (R69's actual scenario) → **no reaction at all**. **① is fixed**: `parse()` now digests **the very bytes it read**, and `main()` uses that as `before` against the on-disk digest taken just before the verdict — the root cause was that `before`, `after` and `parse` were **three reads and two digests, with nobody minding the middle one**. **②③ are logged, not fixed**: spanning runs needs an **external anchor** (git blob / remote); two points inside a run cannot do it in principle. The wording is **narrowed** to "the ledger did not change *within this run's window*, which is **not** the same as the verdict being reproducible", and is now **printed on the human-readable face** (previously `sha` did not appear at all in its 49 lines). ⚠ Two mistakes of mine this round, both caught by the red team: **(a) I claimed the mutants were "5/5 caught"; the red team's M5 was a miss** — moving `before` after `parse()` left `Ran 19 tests` fully green, exit 0. **"I ran mutants" is not "I ran the mutant that mattered"**; (b) my `test_A12... (line truncated to 2000 chars)
+- **R69: Self-reported metrics — I write the label, the script treats it as authoritative.** R68's back-fill count (A10) claimed to make "written after the fact" **visible**; the red team's F6 immediately pointed out that **I write the two characters `回填`**, so **simply not labelling makes A10 look good**, and the script had **zero objective cross-check** on it — the self-attestation source is **the audited party's own free text**. The fix adds an **objective anchor**: iron rule 3 says "an item proposed this round may be settled **no earlier than the next round**", so `结算轮 == 提出轮` is an **objectively computable** process violation that does not depend on my remarks at all. New fields `backfilled_struct_total` (objective) and `backfill_unlabeled` (**unlabelled yet objectively violating**), measured on the real ledger: **81 self-reported / 94 objective / 23 unlabelled**. ⚠ **I deliberately did *not* call it "23 unlabelled back-fills"** — `结算轮==提出轮` proves a **breach of rule 3**, which is **not the same** as back-filling (pre-registering at the start of a round, being caught by the red team during it, and settling at its end lands in the same cell). **Treating the two as one thing would be yet another unverified equivalence claim** (the third after R67's "one level too wide → no-op" and R68's "2.8pp → 86pp"). So the three are **reported separately, never merged** — one is "I admit it", the other is "the ledger gave it away"; merging hides "should have labelled but didn't". ⚠ **R13 check**: I *can* shrink the gap myself (by adding labels) — that is the correct direction, but the gap trends to zero while the **objective count does not move**, so A11 **must report the objective count too**. Mutants **5/5 caught** (including "merge self-reported and objective into one number").
+- **R68: "Making the rule match the implementation" can be the self-beautifying direction.** The ledger's iron rule 1 says "anything written after the fact must be marked `回填` and **is not counted in the evasion rate**", while `tools/evasion_audit.py` **never reads the `备注` column** — an inconsistency that had sat for 22 rounds. Round 45 logged it as a "**binary choice, pending human ruling**" but **missed one thing**: one of the two options is the **direction R13 forbids** — implementing "not counted" means I can paste a `回填` label and pull an evasion out of the metric, **putting the metric back in my hands**. **Measured magnitude** (⚠ **after red-team correction F4** — my first version said "79 of 92 evasions are back-filled, 100% → ~14%, **86pp**", which mixed the **scored-round subtotal** with an **all-rows** figure and, when excluding, **subtracted from the numerator but not the denominator**): across the whole ledger, **114 rows / 108 settled / 107 evasions / 81 back-filled** — counting them gives **99.1%**, excluding them **96.3%**, a **2.8pp** gap, and **the exit code does not change (1 either way)**. So the R13 argument holds but it is **structural, not magnitude-based**: I write the label, so implementing exclusion means pulling an evasion out of both numerator and denominator — **the metric back in my hands**; the gap is only 2.8pp *because 75% of the ledger's rows are back-filled*, not because the mechanism is harmless — and it is **not an escape hatch** (the verdict is unchanged). The fix takes a third path: **count them anyway** (the uglier side) + **report the counts** (`backfilled_total` / `backfilled_evaded` into the JSON and the G5 header line — the very thing rule 1 wanted to prevent, "back-fill passing as pre-registration", had **never even shown a number**) + **a guard pinning the direction** (`test_A10` asserts back-filled rows **must still count**; mutant P-20, a real exclusion implementation, **goes red immediately**). ⚠ A harder fact fell ou... (line truncated to 2000 chars)
+- **R67: "I fixed the class" had nothing guarding it.** Round 66 extracted the shared primitive and fixed three `.py` scanners, but **missed the `.md` scanner** (`tests/test_markdown_tables.py`) and an audit script (`tools/_wilson_doc_scan.py`) — found only by an AST **census**; reading code point-by-point cannot see them. **This is the fourth recurrence of "scoping the fix by file instead of by defect class"** (R48, R64, R66, R67). Two-layer fix: (1) add the two missing prunes; (2) a new meta-criterion `tests/test_fs_walkers_are_pruned.py` — the `file::function` set of every `os.walk`/`rglob`/`glob(recursive=True)` in the repo must **exactly equal** the hand-written `WALKERS` list. **"Remember to check" becomes "forget and go red."** ⚠ The census script's first version counted `ast.walk` and **non-recursive** `glob.glob` as recursive walkers — 7 of its 9 hits were false — hence W4, which guards against that false positive.
+- **R67 (two red-team rounds, a real bug, and one causal claim I overstated):** round one ruled **【partially complete】**: my "does it prune" check was a **substring match** `"prune_escaped" in c` — one line of `prune_escaped_fake(...)` bypasses it (the **"whitelist by text fragment" lesson from R50, repeated**), with a closed-loop demo where the criterion stayed green while a real junction test pulled an out-of-repo file into the scan. That bypass shape also made me spot that `tools/_wilson_doc_scan.py` **compared against too wide a root** (it walks `base` but pruned against `ROOT`). Replaced by four **structural** checks (exact attribute name / inside the walk loop body / 2nd arg is dirnames / **3rd arg is `realpath` of this loop's own root**), plus alias-import resolution and a hard error on scope-key collisions. The dispatched round two then caught **B6: my check was existential** — "one qualifying loop and it's green" — so a second, unpruned walk loop in the same function was masked. **Now universally quantified** (every loop must prune). ⚠ **It also falsified a causal claim of mine:** I had written in five places that the wide-root bug made "the prune a total no-op → escapes happen"; the old logic **still pruned** junctions pointing out of the repo — the real consequence was only "one level too wide, so in-repo junctions aren't pruned", **no escape**. **A bug's *consequence* is an assertion that must be measured too.** Re-running both red-team scripts: all 8 old bypasses **closed or now hard errors**, B6 turns red; **9/9** mutants caught. Round 63 found this in `scan_syntax_warnings` and added a local `_inside` **in that one function only**; the Round 65 red team handed over the reproduction — `iter_text_files` in the **same file** (which had **no check at all**) and `iter_py_files` in `tests/test_no_duplicate_dict_keys.py` (a bare `rglob`) **followed it too**, measurably pulling in `tests\jlink\c.py`. ⚠ This is the **third** recurrence of this repo's "**scopin... (line truncated to 2000 chars)
 
-## 📄 开源协议
+Absent (do not assume otherwise):
 
-本项目采用 [MIT License](./LICENSE) 开源协议。
+- **Standalone circuit breaker** — does not exist. Failure recovery comes from the host `@deepseek-ai/dsh-llm-retry`. The one in `tests/test-circuit-breaker.mjs` is a reference implementation only.
+- **Role mutex** — does not exist. 3-way role uniqueness rests on persona discipline, not code, so the model can still dispatch two Path 3s.
+- **Jev Rerank / decision-model gating** — **design reference, not a deployed capability**. No implementation code exists in the plugin; execution depends entirely on the agent reading persona and choosing to comply. The `/systemone` endpoint is not provided by this plugin either. Marked as such in persona.
+- **Full PS-side coverage** — the PS surface has **3** functions; Python has 18. **The other 15 assertion kinds do not exist on the PS side.** Declared honestly, but **not implemented**.
+- **Correctness of `inverse_liq_price`** — the formula is **empirically refuted** (a 20x change in entry price leaves the liquidation price bit-identical; the physically derived value differs by 1e15 and in the opposite direction). It was **not** changed, because the correct formula needs a business decision; the corresponding test is deliberately left red.
+- **G5 chain measuring the real evasion rate** — it only measures **"how much I admit to faking."** The ledger is maintained solely by the audited party; the git HEAD anchor prevents *deleting evidence*, not *rewriting records*.
