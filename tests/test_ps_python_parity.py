@@ -150,13 +150,15 @@ class TestPsPythonParityClaim(unittest.TestCase):
 
     def test_D4_readme_makes_the_same_claim(self):
         """★ 红队 2a1f0ee 实测:persona 改了但 **README.md / README_EN.md 完全没同步**,
+        (历史:该事故发生在双语化重构前;2026-10-07 起英文文档为 README.md、
+         中文为 README.zh-CN.md,README_EN.md 已不存在 —— 断言清单见下方 for 循环)
         人读 README 拿到的仍是「两套并列等价」的旧认知 —— 而那正是附录 B2 要消灭的误导。
 
         加本项是因为:Round 33 只改了 persona(persona 是给 agent 看的),
         **README 是给人看的**,两者都是对外承诺;只改前者等于只对机器说真话。
         """
         py, ps = py_list_count(), len(ps_exports())
-        for name in ("README.md", "README_EN.md"):
+        for name in ("README.md", "README.zh-CN.md"):
             with self.subTest(文档=name):
                 path = os.path.join(ROOT, name)
                 text = open(path, encoding="utf-8").read()
@@ -188,8 +190,10 @@ class TestPsPythonParityClaim(unittest.TestCase):
         #      find() 命中的是标题,导致 present_section 把全部条目都排除了。
         #      改用**只在 absent 栏正文出现**的标志:「别当成有」/「do not assume otherwise」。
         for name, absent_marker, keywords in (
-            ("README.md", "别当成有", ("护栏", "变异", "规避")),
-            ("README_EN.md", "do not assume otherwise", ("guardrail", "mutation", "evasion")),
+            # ⚠ 2026-10-07 README 双语化重构:README.md 改为英文默认,中文移到 README.zh-CN.md,
+            #   旧的 README_EN.md 被删除。这里的映射必须跟着走 —— 否则拿中文关键词去搜英文文档。
+            ("README.zh-CN.md", "别当成有", ("护栏", "变异", "规避")),
+            ("README.md", "do not assume otherwise", ("guardrail", "mutation", "evasion")),
         ):
             with self.subTest(文档=name):
                 path = os.path.join(ROOT, name)

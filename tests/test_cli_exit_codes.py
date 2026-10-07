@@ -57,7 +57,8 @@ class TestCliExitCodeContract(unittest.TestCase):
         return [
             os.path.join(PLUGIN_ROOT, "cordis.patch.yml"),
             os.path.join(PLUGIN_ROOT, "README.md"),
-            os.path.join(PLUGIN_ROOT, "README_EN.md"),
+            # 2026-10-07 双语化:README.md=英文默认,README.zh-CN.md=中文(旧 README_EN.md 已删)
+            os.path.join(PLUGIN_ROOT, "README.zh-CN.md"),
         ]
 
     def test_T1_exit_code_matrix(self):
