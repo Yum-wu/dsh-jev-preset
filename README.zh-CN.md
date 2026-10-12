@@ -50,38 +50,58 @@ dsh --profile <你的 profile> --dump-config
 > 声明行自带 `inject = ["agentPresets"]`，由 loader 等注册表就绪后激活，子插件路径由宿主
 > `@deepseek-ai/dsh-agent-preset` 的 baseUrl 解析。0.1.7 起实测可用，0.2.0-rc.2 上验证通过。
 
-### 🔗 附属插件：自动思考程度（2026-10-05 起）
+### 🔗 运行时半区：自动思考程度（2026-10-05 起，2026-10-13 合体进本包）
 
-JEV 的三路隔离采样与结构化重算都以「按任务复杂度选思考档位」为前提 ——
-档位太低，断言算错没人发现。本 bundle 因此**顺带**把另一个独立插件挂进 loader 树：
+JEV 的提示词半区是**纯提示词**；它的三路隔离采样与结构化重算都以「按任务复杂度选思考档位」为前提 ——
+档位太低，断言算错没人发现。这段逻辑 2026-10-13 起**就在本包里**：
 
 | | |
 |---|---|
-| 插件 | [`dsh-auto-reasoning`](https://github.com/Yum-wu/dsh-auto-reasoning) |
-| 关系 | **引用关系** —— 代码不并入本仓，由本 bundle 的 `cordis.patch.yml` 声明 |
-| 声明位置 | 与 `preset-jev` **同一个 insert 组**里的第二条声明行（`id: plugin-auto-reasoning`） |
-| 做什么 | 把模型配置里的 `reasoningEffort: auto` 哨兵，换算成该模型自己的合法档位 |
+| 代码位置 | 本包 `lib/`（`index.js` 运行时插件、`auto-reasoning.js` 计分、`jev-client.js` SystemOne 通道、`client.js` 胶囊） |
+| 声明位置 | 与 `preset-jev` **同一个 insert 组**里的第二条声明行（`id: plugin-jev-runtime`，自挂本包） |
+| 做什么 | ① 把模型配置里的 `reasoningEffort: auto` 哨兵换算成该模型自己的合法档位；② 数「本轮实际发射了几路」（发射台账） |
+| 历史 | 2026-10-05 → 2026-10-13 期间它在**另一个 npm 包** [`dsh-auto-reasoning`](https://github.com/Yum-wu/dsh-auto-reasoning) 里，由本 bundle 的这行**引用**进来 |
 
-> ⚠ **profile 的 `cordis.patch.yml` 不得再单独 insert `plugin-auto-reasoning`** ——
-> Loader entry id 重复会让 profile 起不来。`node validate.mjs` 会校验这条附属声明行。
+#### 为什么合体：同 id 重复会**静默覆盖**，而不是报错
+
+合体前本 bundle 的那行是 `id: plugin-auto-reasoning` / `name: 'dsh-auto-reasoning'`，
+而 `dsh-auto-reasoning` **自己也是 bundle** —— 它的 `cordis.patch.yml` 插入**同 id** 的行。
+实测（2026-10-13，预检脚本 `compose-check.mjs` 走运行时自己的 `loadProfileDirectory` + `composeEntries`）：
+合成层确有 **2 条** `plugin-auto-reasoning`。
+
+> ⚠ 本仓 2026-10-05 那版注释写的「Loader entry id 重复会让 profile 起不来」在 **0.2.0-rc.2 上不成立，已推翻**：
+> `@deepseek-ai/cordis-plugin-loader/src/config/group.ts:48-65` 的 `EntryGroup.update()` 用
+> `Object.fromEntries(config.map(o => [o.id, o]))` 建映射 ⇒ **同 id 只创建一条 entry，后者胜**
+> （`this.tree.store[id] ??= new Entry(...)` 复用同一实例）。全仓 grep `duplicate loader entry id` = **0 命中**。
 >
-> ⚠ **连带取舍**：卸载 jev preset = 一并失去 auto 档位，思考档位回落到**模型默认档**
-> （不是 `high` —— 哨兵没了就没有任何人做换算）。
->
-> ⚠ **auto 只对新会话生效**。宿主 `dsh-agent` 的后置拾取器只认 session request header 里
-> 持久化的 UI 选择，改配置对已有会话无效。
+> 真正的危害是**静默覆盖**：bundle 层顺序 = `dsh.profile.bundles` 顺序，`dsh-auto-reasoning`
+> 当时排在本包**之后** ⇒ 它自己那条赢，**本包写在该行 config 里的值全部失效**。
 
-#### ⚠ 安装时必须带上 `dsh-auto-reasoning`
+合体后本包**自挂**（`name: 'dsh-jev-preset'`），同 id 重复的入口消失。
+`node validate.mjs` 会校验「附属声明行必须是 `plugin-jev-runtime` 且自挂本包」，
+并**显式否决**旧的 `plugin-auto-reasoning` 形态。
 
-2026-10-05 起档位插件不再是 codemode 的一部分，**改由本 bundle 声明**。装 jev 时请一并装：
+#### ⚠ 安装 / 升级须知
 
-```bash
-dsh plugin --profile <你的 profile> add dsh-auto-reasoning
-```
+- **全新安装**：只需装本包，运行时半区随包自带，**不必**再 `add dsh-auto-reasoning`。
+- **从 2026-10-13 之前的版本升级**：若你的 profile 的 `dsh.profile.bundles` 里列了
+  `dsh-auto-reasoning`，**必须移除** —— 否则它自己的 bundle 层会再挂一份旧代码，
+  两个实现同时接管 `agent/request`。
+  判据：profile 的 `cordis.patch.yml` 里 `plugin-codemode` 段的注释曾说明这一点。
+- **profile 的 `cordis.patch.yml` 不得再单独 insert `plugin-jev-runtime`** ——
+  同 id 重复会按上面的规则**静默覆盖**（不是报错，更难查）。
+- ⚠ **连带取舍**：卸载 jev preset = 一并失去档位换算，思考档位回落到**模型默认档**
+  （不是 `high` —— 哨兵没了就没有任何人做换算）。
+- ⚠ **auto 只对新会话生效**。宿主 `dsh-agent` 的后置拾取器只认 session request header 里
+  持久化的 UI 选择，改配置对已有会话无效。
 
-漏装的症状**不是报错，而是 profile 起不来**（Loader 解析不到 `dsh-auto-reasoning` 这个包名）。
-反过来，**profile 的 `cordis.patch.yml` 不得再单独 insert `plugin-auto-reasoning`** ——
-Loader entry id 重复同样会让 profile 起不来。`node validate.mjs` 会校验这条附属声明行。
+#### 发射台账（2026-10-13 加）
+
+persona §三 3.1 要求「裁决时记录本轮实际发射数（含补派）」，过去**纯靠模型自觉** ——
+实测 C3F 30 题里 11 题（36.7%）派出 4~5 路而标识仍写 3/3。现在同一事实由**运行时**计数：
+在 `subagent` / `subagent_fork` / `workflow` 的结果尾部追加一行台账，
+并在 `GET /api/auto-reasoning.effort` 的 `emissions` 字段里暴露（按会话、随新一轮用户消息重置）。
+配置开关 `emissionLedger`（默认 `true`）。判分器**不校验**标识里的数字，这是唯一的事后审计入口。
 
 > ⚠ 若你的 profile 里 `plugin-codemode` 配了 `autoReasoning: true`，请删掉。
 > 该键已于同日从 codemode 移除；cordis 按整条 entry 校验配置，未知键会让

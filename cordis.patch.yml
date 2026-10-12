@@ -387,21 +387,57 @@
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
 
-# ── 同一个 insert 组里的第二条声明行:自动思考程度插件(2026-10-05)──────
-# JEV 本身是**纯提示词**插件(无运行时代码),但它的三路隔离采样与结构化重算
+# ── 第二条声明行:JEV 运行时半区(自动思考程度 + 发射台账)2026-10-13 合体 ──
+# JEV 的提示词半区(上面的 preset-jev)是**纯提示词**;它的三路隔离采样与结构化重算
 # 都以「按任务复杂度选思考档位」为前提 —— 档位太低,断言算错没人发现。
+# 该逻辑过去在**另一个 npm 包** `dsh-auto-reasoning` 里,由本 bundle 的这行「引用」进来。
+# 2026-10-13 合体:代码搬进本包 `lib/`,改为**自挂一行**(与 dsh-plugin-codemode、
+# dsh-memory 同款:一个包既是 bundle 又是运行时插件)。一个包、一个版本、一套测试。
 #
-# 这里用 cordis 原生机制做**引用关系**,不是把代码搬进来:
-# 本 bundle 顺带把 `dsh-auto-reasoning` 挂进 Loader 树,装了 jev 就带上 auto 档位。
-# 插件本体与发布节奏独立(见 <https://github.com/Yum-wu/dsh-auto-reasoning>)。
+# ⚠ 为什么必须自挂而不能继续引用 —— 实测(2026-10-13):
+#   `dsh-auto-reasoning` 自己**也是** bundle,它的 cordis.patch.yml 会插入**同 id** 行。
+#   合成层实测确有 2 条 `plugin-auto-reasoning`(预检脚本
+#   `%TEMP%\_tmp-jev-verify\compose-check.mjs`,走运行时自己的
+#   `loadProfileDirectory` + `composeEntries`,不启动服务)。
+#   ⚠ 但**不会**让 profile 起不来 —— 本文件 2026-10-05 那版注释写的
+#   「Loader entry id 重复会让 profile 起不来(实测同类:duplicate loader entry id:
+#   web-ui-provider-panel)」在 0.2.0-rc.2 上**不成立,已推翻**:
+#     `@deepseek-ai/cordis-plugin-loader/src/config/group.ts:48-65` 的 `EntryGroup.update()`
+#     先 `this.data = config`(整份合成表,含重复),再用
+#     `Object.fromEntries(config.map(o => [o.id, o]))` 建 newMap ⇒ **同 id 只创建一条
+#     entry**,`this.tree.store[id] ??= new Entry(...)` 复用同一个实例 ⇒ 后者胜。
+#     全仓 grep `duplicate loader entry id` 在 0.2.0-rc.2 上 **0 命中**。
+#   真正的危害是**静默覆盖**:bundle 层顺序 = `dsh.profile.bundles` 顺序,
+#   `dsh-auto-reasoning` 当时排在本包**之后** ⇒ 它自己那条赢,
+#   **本包写在这里的 config 全部失效**(实测合成后生效值 = 它那份)。
+#   ⇒ 合体 + 从 profile 的 bundles 里移除 `dsh-auto-reasoning`,该覆盖面归零。
+#   留档判据:预检脚本合体前输出 `duplicate ids at compose level: 2` 且
+#   `row[plugin-auto-reasoning] count=2`;合体后前者应为 1、后者应归零。
 #
-# ⚠ 因此 profile 的 cordis.patch.yml **不得**再单独 insert 同一条 `plugin-auto-reasoning`
-#   —— Loader entry id 重复会让 profile 起不来(实测同类:duplicate loader entry id:
-#   web-ui-provider-panel)。改前先 grep 一遍 profile。
-# ⚠ 连带取舍:卸载 jev preset = 一并失去 auto 档位,思考档位回落到模型默认档
+# ⚠ 仍有一条已知重复(**非本次引入,不动它**):`plugin-codemode` 在 profile 用户层
+#   与本包各一条。用户层排在 bundle 层之后 ⇒ profile 那份富配置赢(44 项白名单生效)。
+#
+# ⚠ profile 侧配套:`dsh-auto-reasoning` **必须**从 `dsh.profile.bundles` 移除,
+#   否则它自己的 bundle 层会再挂一份旧代码 ⇒ 两个实现同时接管 `agent/request`。
+#
+# ⚠ 连带取舍:卸载 jev preset = 一并失去档位换算,思考档位回落到**模型默认档**
 #   (不是回落到 high —— 哨兵没了就不会有人换算)。
-    - id: plugin-auto-reasoning
-      name: 'dsh-auto-reasoning'
+    - id: plugin-jev-runtime
+      name: 'dsh-jev-preset'
       config:
         enabled: true
+        # 决策缓存条数上限(按会话 id,超出淘汰最旧)
         decisionCap: 50
+        # 客户端胶囊轮询间隔(ms)
+        pollIntervalMs: 3000
+        # 「不适用」出口(默认关):给 SystemOne 一个「这条消息没有可判定的任务内容」的选项。
+        # ⚠ 该档与 low 的 criteria **正面重叠**(low 已含「简单问答」),开了会改变**全部 5 档**
+        #   的判定分布。必须先用 `npm run bench`(在线、真实 SystemOne 路径)实测
+        #   对齐率与分档召回没有退化,才改成 true。
+        declineOption: false
+        # 发射台账(2026-10-13 加,对应 JEV 侧 ②):把「本轮实际发射了几路」交给运行时数,
+        #   在 delegation 类工具结果尾部追加一行台账,并在
+        #   `GET /api/auto-reasoning.effort` 的 `emissions` 字段暴露。
+        # 目的:persona §三 3.1 要求「裁决时记录本轮实际发射数」,过去**纯靠模型自觉**;
+        #   现在同一事实由运行时计数,可交叉核对(判分器不校验数字,这是唯一的事后审计入口)。
+        emissionLedger: true

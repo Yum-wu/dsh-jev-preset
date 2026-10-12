@@ -49,8 +49,9 @@ const inserts = patch.filter((p) => p && p.insert)
 if (inserts.length !== 1) fail(`期望恰好 1 个 insert patch,实际 ${inserts.length}`)
 else ok('恰好 1 个 insert patch')
 const rows = inserts.flatMap((p) => p.insert)
-// 2026-10-05 起本组有 2 条声明行：preset-jev（agent preset）+ plugin-auto-reasoning
-// （思考档位插件，见 cordis.patch.yml 末尾「同一个 insert 组里的第二条声明行」段）。
+// 2026-10-05 起本组有 2 条声明行：preset-jev（agent preset）+ 运行时半区。
+// ⚠ 2026-10-13 合体：运行时半区由 `plugin-auto-reasoning`（引用外部包
+//   `dsh-auto-reasoning`）改为 `plugin-jev-runtime`（自挂本包，代码在 lib/）。
 // 因此**按 id 定位**而不是假设 rows[0] —— 顺序一变就静默校验错对象。
 if (rows.length < 1) fail('insert 组里没有任何声明行')
 else ok(`insert 组内 ${rows.length} 条声明行: ${rows.map((r) => r?.id).join(', ')}`)
@@ -64,14 +65,23 @@ else ok(`Loader 行 id = ${decl.id}`)
 
 // 同组的非 preset 声明行：只允许已知的插件 id，且名字必须能被 Loader 解析
 const extraRows = rows.filter((r) => r?.id !== 'preset-jev')
-const ALLOWED_EXTRA = new Set(['plugin-auto-reasoning'])
+const ALLOWED_EXTRA = new Set(['plugin-jev-runtime'])
 for (const r of extraRows) {
   if (!ALLOWED_EXTRA.has(r?.id)) fail(`insert 组里出现未登记的非 preset 声明行 id=${r?.id}`)
   else ok(`附属声明行 id=${r.id} name=${r.name}`)
 }
-if (extraRows.some((r) => r?.id === 'plugin-auto-reasoning') && decl) {
-  // profile 的 cordis.patch.yml 不得再单独 insert 同 id —— Loader entry id 重复会让 profile 起不来
-  ok('plugin-auto-reasoning 已由本 bundle 声明（profile 侧须留空，见 cordis.patch.yml 注释）')
+const runtimeRow = extraRows.find((r) => r?.id === 'plugin-jev-runtime')
+if (runtimeRow !== undefined && decl) {
+  // 自挂：name 必须是本包名，否则 Loader 解析到别的包（或解析不到）→ 整条不激活。
+  if (runtimeRow.name !== 'dsh-jev-preset') fail(`运行时半区应自挂本包，name 实际 ${runtimeRow.name}`)
+  else ok('plugin-jev-runtime 自挂本包（name=dsh-jev-preset）')
+  // ⚠ 旧形态必须绝迹：`plugin-auto-reasoning` 指向外部包 `dsh-auto-reasoning`，
+  //   它与对方自己的 bundle 层同 id ⇒ 合成层重复、后者胜 ⇒ 本包 config 静默失效。
+  if (extraRows.some((r) => r?.id === 'plugin-auto-reasoning')) {
+    fail('仍存在旧的 plugin-auto-reasoning 声明行 —— 与 dsh-auto-reasoning 自己的 bundle 层同 id，会静默覆盖本包 config')
+  } else {
+    ok('已无旧 plugin-auto-reasoning 声明行（同 id 静默覆盖的入口已消除）')
+  }
 }
 
 // ── 3. config 字段(schemastery 契约:仅这些键被接受)────────────────────────

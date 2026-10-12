@@ -46,6 +46,51 @@ Remove the same way: `dsh plugin --profile <your-profile> remove dsh-jev-preset`
 > and sub-plugin paths resolve from the host `@deepseek-ai/dsh-agent-preset` baseUrl.
 > Tested working on 0.2.0-rc.2.
 
+### Runtime half: auto reasoning effort (merged in 2026-10-13)
+
+The persona half is prompt-only. Its 3-way sampling and structured re-derivation both assume
+"pick the thinking effort by task complexity" — too low an effort and a wrong assertion goes unnoticed.
+That logic used to live in a **separate npm package** (`dsh-auto-reasoning`), referenced by this bundle's
+second declaration row. Since 2026-10-13 the code is **in this package** (`lib/`), declared by a
+self-mounting row (`id: plugin-jev-runtime`, `name: 'dsh-jev-preset'`).
+
+| | |
+|---|---|
+| Code | `lib/` — `index.js` (runtime plugin), `auto-reasoning.js` (scoring), `jev-client.js` (SystemOne channel), `client.js` (the composer pill) |
+| Row | second row of the same `insert` group in `cordis.patch.yml` |
+| Does | ① projects the `reasoningEffort: auto` sentinel onto the model's own ladder; ② counts how many paths this turn actually launched (emission ledger) |
+
+**Why merge: duplicate ids are silently overridden, not rejected.** The old row was
+`id: plugin-auto-reasoning` / `name: 'dsh-auto-reasoning'`, and `dsh-auto-reasoning` is itself a bundle
+whose patch inserts the **same id**. Measured 2026-10-13 (preflight script `compose-check.mjs` driving the
+runtime's own `loadProfileDirectory` + `composeEntries`): the composed tree carried **2** such rows.
+
+> ⚠ The 2026-10-05 comment in this repo claimed "duplicate loader entry ids stop the profile from booting".
+> That is **false on 0.2.0-rc.2**: `EntryGroup.update()` in
+> `@deepseek-ai/cordis-plugin-loader/src/config/group.ts:48-65` builds a map via
+> `Object.fromEntries(config.map(o => [o.id, o]))`, so only **one** entry per id is created
+> (`this.tree.store[id] ??= new Entry(...)` reuses the same instance) — **last one wins**.
+> A repo-wide grep for `duplicate loader entry id` finds **0** hits on 0.2.0-rc.2.
+>
+> The real damage is **silent override**: bundle layers apply in `dsh.profile.bundles` order and
+> `dsh-auto-reasoning` came **after** this package, so its row won and every config value written
+> here was discarded.
+
+**Upgrading from a pre-2026-10-13 install:** remove `dsh-auto-reasoning` from your profile's
+`dsh.profile.bundles` **and** from `dependencies` — otherwise its own bundle layer mounts a second copy.
+Removing only `bundles` is not enough: `reconcileProfilePlugins` re-adds any dependency that declares
+`dsh.bundle`. `node validate.mjs` rejects the old row shape outright.
+
+### Emission ledger (2026-10-13)
+
+Persona §三 3.1 requires "record how many paths this turn actually launched (including re-dispatches)",
+and that number used to be **purely self-reported** — in the C3F 30-task run, 11 tasks (36.7%) dispatched
+4–5 paths while still declaring 3/3. The runtime now counts the same fact: a ledger line is appended to
+`subagent` / `subagent_fork` / `workflow` results, and exposed as `emissions` on
+`GET /api/auto-reasoning.effort` (per session, reset by the next human message). Config switch
+`emissionLedger` (default `true`). The grader does **not** check the number in the route marker, so this
+is the only post-hoc audit entry point.
+
 ## Gating: what happens when
 
 The model routes on its own; no user action needed.
