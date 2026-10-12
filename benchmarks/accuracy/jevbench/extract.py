@@ -219,3 +219,74 @@ def is_three_path(route) -> bool:
         return False
     low = route.lower()
     return not any(low.startswith(p) for p in _SINGLE_PATH_PREFIXES)
+
+
+# ── 粗档分层(2026-10-13,附录 A11 / 需求项 ⑤ 的**可测子集**)────────────────────
+#
+# 需求原文是「首行 3~4 个粗档」。⚠ 本仓**只落地了判分侧的派生粗档**,没有改
+# persona 的输出协议 —— 理由是可测的,不是口味:
+#
+#   1. 前提无实测支撑。查遍 `docs/`(含 `appendix-status.md` / `evasion-ledger.md` /
+#      `self-optimize-rounds.md`)**没有任何一条**测过「标识数过多导致选错」。
+#      唯一被实测到的路由类缺陷是**格式容错**(全角冒号 / 零宽字符 / `[JEV: ]` 空声明,
+#      Round 47/48)—— 那是**解析**问题,不是**选择**问题。改档位数治不了它。
+#   2. 改协议会**打断可比性**。`extract_route`(全文首个匹配)同时喂「成本 / 对照臂归类」,
+#      历史 901 条记录用的是**旧格式**。首行格式一变,新旧语料混在一起,
+#      `extract_declared_route` 的 gate 分与成本归类都要重算 —— 而目标明令不重跑那些实验。
+#      (`extract_declared_route` 的 docstring 已把这条边界钉成 D13。)
+#   3. 白名单法已经把 12 条标识压成**二值**了(`is_three_path`)。粗档是它的**再聚合**,
+#      判分侧现成可算 —— 不需要模型多写一个字。
+#
+# ⇒ 故:粗档是**派生量**,由下面的表独立定义,再用测试与 `is_three_path` **对拍**。
+#   ⚠ 表**不写成 `is_three_path` 的调用** —— 那样两套判据同源,测试就退化成同义反复
+#   (本仓 H9 的① 踩过:比较两个恒等的实现,鉴别力为 0)。
+#
+# 四档 + 一个哨兵:
+#   直出   —— 单次直出,没有任何验证动作(`Fast-Pass`)
+#   单路   —— 有验证动作但只有一路(断言复算 / 换模型重跑 / 题干结构化 / 单路未验证)
+#   多路   —— 启动了多路隔离采样(3/3、2/3、Rerank、Triggered、串行降级)
+#   未登记 —— 表里没有的新标识。**显式可见**,不静默并档 ——
+#            新增标识时先在这里登记,而不是让它悄悄落进某一档。
+COARSE_DIRECT = "直出"
+COARSE_SINGLE = "单路"
+COARSE_MULTI = "多路"
+COARSE_UNKNOWN = "未登记"
+
+#: 前缀 → 粗档。前缀一律小写后比较(`Fast-Pass` 与 `fast-pass` 同档)。
+#: ⚠ 顺序有意义:`断言不适用-转三路` 与 `断言不适用-换模型` **共享前缀**
+#:   `断言不适用`,而两者物理行为相反 —— 故**更长的先比**,短的留在后面兜底。
+#: ⚠ `fast-pass` 在 `_SINGLE_PATH_PREFIXES` 里(它确实没有多路),但粗档里**单独成档** ——
+#:   它是唯一「一个验证动作都没有」的路径,与「跑了一路断言/换模型」成本不同。
+#:   该差异由 `tests/test_coarse_route.py` 的 T5 显式钉住,不是随手分的。
+_COARSE_BY_PREFIX = (
+    ("fast-pass", COARSE_DIRECT),
+    ("断言通过", COARSE_SINGLE),
+    ("断言不适用-转三路", COARSE_MULTI),
+    ("断言不适用-换模型", COARSE_SINGLE),
+    ("题干结构化后重算", COARSE_SINGLE),
+    ("单路未验证", COARSE_SINGLE),
+    ("3/3", COARSE_MULTI),
+    ("2/3", COARSE_MULTI),
+    ("rerank pick", COARSE_MULTI),
+    ("triggered by test failure", COARSE_MULTI),
+    ("串行降级", COARSE_MULTI),
+)
+
+
+def coarse_route(route) -> str:
+    """把细标识映射到 3~4 个粗档之一;表里没有的返回 `COARSE_UNKNOWN`。
+
+    ⚠ 这是**派生量**,不参与判分 —— gate 仍只看 `is_three_path`。
+    用途:聚合汇报、跨 run 的粗粒度对照、以及「新增标识忘了登记」的可见化。
+
+    与 `is_three_path` 的关系由 `tests/test_coarse_route.py` **对拍**(两套独立表):
+    对每一个 persona 里真实存在的标识,`coarse_route(m) == COARSE_MULTI`
+    必须**当且仅当** `is_three_path(m) is True`。
+    """
+    if route is None:
+        return COARSE_UNKNOWN
+    low = route.lower()
+    for prefix, bucket in _COARSE_BY_PREFIX:
+        if low.startswith(prefix):
+            return bucket
+    return COARSE_UNKNOWN
