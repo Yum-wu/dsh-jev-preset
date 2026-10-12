@@ -57,6 +57,19 @@ The model routes on its own; no user action needed.
 | High risk but no single numeric answer (security boundaries, concurrency, design tradeoffs) | 3-way isolated sampling |
 | Any of the above, but assertion/test fails | Do not ship. Fix the assertion first; escalate to 3-way only if it can't be fixed |
 
+**When the gate can't decide** (added 2026-10-13, after magpie's intent-classifier failure matrix):
+
+The gate is a helper, not a gate — when it can't tell which path applies it never blocks delivery: take the most conservative path, and say in the answer why the gate couldn't decide. Silent degradation is a debugging disaster.
+
+- No feature matches at all → Fast-Pass, single shot.
+- High risk matched but multi-path launch is unavailable → degrade to single path, mark `[JEV: 单路未验证]`, and say it was capability, not a single-path verdict.
+- Assertion library unavailable → locate it first; if that fails, **do not claim an assertion ran**; use Fast-Pass or 3-way instead.
+- Assertion ran but `exit 2` (bad call, it never ran) → fix the command and recompute; no numeric conclusion exists at that point.
+- Assertion `exit 3` (input insufficient) → supply the data and rerun; recomputing is meaningless.
+- Same instrument fails twice in a row this turn → it rests for the turn; switch to another path and say which.
+
+> This matrix adds **no new route markers** — it only fixes which existing marker to use when the gate can't decide.
+
 3-way is the fallback, not the default. See the numbers below.
 
 ## Measured results

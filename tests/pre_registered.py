@@ -60,7 +60,12 @@ HARNESS_TESTS = 10
 #:   「承载自守链的 5 个文件未被 git 跟踪 ⇒ `git diff` 无输出」经实测为**假**:
 #:   5/5 均自 `1274cda` 起被跟踪,改一个字节 `git diff --stat` 即报 `1 file changed`。
 #:   该判据反过来**强制**仓内 6 个文件维持一句假声明 ⇒ 整条退役。
-SUITE_FILES = 35
+#: ⚠ 2026-10-09 35 → 36:新增 `tests/test_failure_bundle.py`(failure bundle 机制,
+#:   规范见 `docs/failure-bundle-spec.md`),并已挂进 `scripts.test`。
+#:   口径**未动**(仍只扫 `scripts.test` 里的 python 套件),变的是被计数的对象 ——
+#:   与 2026-10-06 那次 35 → 36 同型;与 R95 P16-R95-A 那次「把常量对齐到错口径的
+#:   算法」**不同型**(那次是算法扫了整份 package.json,多算了 `scripts["test:mutation"]`)。
+SUITE_FILES = 36
 #: 被测套件断言总数下界。⚠ **这个「总数」本身不可复算、且单位失真**(红队 R82 P2-R82-F):
 #:   R81 记 **406**、R82 用文件自带的 `_COUNTER` 连跑两次逐用例计数 **IDENTICAL** 得 **407** ——
 #:   两数对不上;更要紧的是**单位**:1 条 `assertEqual('abc','abc')` 被记 **4** 次

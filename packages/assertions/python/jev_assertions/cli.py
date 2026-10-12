@@ -7,7 +7,9 @@ import sys
 import os
 import json
 import argparse
+import hashlib
 import inspect
+from datetime import datetime, timezone
 from decimal import DecimalException
 
 # 「数据导致算术失败」的异常集合。实测 MRO(2026-10-01):
@@ -126,11 +128,122 @@ def list_assertions():
         result[name] = [p.name for p in sig.parameters.values()]
     return result
 
+# ---------------------------------------------------------------------------
+# failure bundle(显式 opt-in,规范见 docs/failure-bundle-spec.md)
+#
+# 定位:退出码契约回答「该做什么动作」,失败包回答「到底发生了什么」。
+# 二者正交 —— 本段**不得**改变任何分支的退出码,证据机制坏掉不该掩盖结论。
+#
+# 三条设计约束:
+#   1. 不传 --bundle-dir 时,行为与加本段之前**逐字节一致**(stdout 也不多字段);
+#   2. 写包失败一律吞掉(返回 None),绝不因写不了证据而改变退出码;
+#   3. 只在断言函数**确实被调用过**之后写包 —— 缺 --func / 未知断言名 / 坏 JSON
+#      这三类前置错误连断言名都不可靠,包没有复现价值。
+# ---------------------------------------------------------------------------
+
+def _cli_sha256():
+    """本 CLI 文件内容的短哈希 —— 用于区分「换了数据」与「换了代码」。
+
+    `__file__` 守卫与文件头同理:exec(open(cli).read()) 这类用法没有 __file__。
+    """
+    f = globals().get("__file__")
+    if not f:
+        return None
+    try:
+        with open(f, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:16]
+    except OSError:
+        return None
+
+
+def _canonical_args(data):
+    """规范化 payload —— 排序 + 紧凑分隔符,让同一输入恒得同一串。"""
+    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _now_iso():
+    """微秒精度。
+
+    ⚠ **不能用秒级**:`bundle_id` 由 ts 参与哈希,秒级会让**同一秒内**同一断言
+    同一输入的两次失败算成同一个 id ⇒ 后一次**静默覆盖**前一次,
+    而规范承诺的是「多次失败各得一个 id,不被静默去重」。
+    同一秒内跑两次失败在本仓完全现实 —— 测试套件就是连跑。
+    """
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+def _repro_cmd(func_name, data):
+    """可直接粘贴执行的复现命令 —— 复现的唯一入口,不靠调用方手拼。"""
+    cli = globals().get("__file__") or "<cli.py>"
+    return 'python "%s" --func %s --args \'%s\'' % (cli, func_name, _canonical_args(data))
+
+
+def _write_bundle(bundle_dir, func_name, data, status, exit_code, error, hint=None):
+    """写一个失败包。返回 bundle_id;任何异常都吞掉并返回 None。"""
+    try:
+        os.makedirs(bundle_dir, exist_ok=True)
+        ts = _now_iso()
+        canon = _canonical_args(data)
+        bid = hashlib.sha256(
+            ("%s|%s|%s" % (func_name, canon, ts)).encode("utf-8")).hexdigest()[:12]
+        body = json.dumps({
+            "schema_version": "jev.failure/1",
+            "bundle_id": bid,
+            "ts": ts,
+            "assertion": func_name,
+            "args": data,
+            "status": status,
+            "exit_code": exit_code,
+            "error": error,
+            "hint": hint,
+            "repro_cmd": _repro_cmd(func_name, data),
+            "env": {"python": ".".join(str(v) for v in sys.version_info[:3]),
+                    "cli_sha256": _cli_sha256()},
+            "resolved_by": None,
+        }, ensure_ascii=False, indent=2)
+        for name in (bid + ".json", "latest.json"):
+            with open(os.path.join(bundle_dir, name), "w",
+                      encoding="utf-8", newline="\n") as fh:
+                fh.write(body + "\n")
+        return bid
+    except Exception:
+        return None
+
+
+def _resolve_bundle(bundle_dir, resolves_id, func_name):
+    """把 --resolves 指向的包就地标为已解析。返回告警文本,成功或未启用时返回 None。
+
+    只在**成功侧**生效:失败调用即便传了 --resolves 也一律忽略 ——
+    否则「红包解析红包」会让 resolved_by 变成一句无意义的自指。
+    """
+    if not bundle_dir or not resolves_id:
+        return None
+    path = os.path.join(bundle_dir, resolves_id + ".json")
+    if not os.path.exists(path):
+        return "bundle not found: %s" % resolves_id
+    try:
+        with open(path, encoding="utf-8") as fh:
+            bundle = json.load(fh)
+        ts = _now_iso()
+        rid = hashlib.sha256(
+            ("resolve|%s|%s" % (resolves_id, ts)).encode("utf-8")).hexdigest()[:12]
+        bundle["resolved_by"] = {"bundle_id": rid, "ts": ts, "assertion": func_name}
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(bundle, ensure_ascii=False, indent=2) + "\n")
+    except Exception as e:
+        return "resolve failed: %s" % e
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description="JEV Quantitative Assertions Universal Runner")
     parser.add_argument("--test", "--func", dest="func_name", type=str, help="Assertion function name to run")
     parser.add_argument("--payload", "--args", dest="payload", type=str, help="JSON arguments payload")
     parser.add_argument("--list", action="store_true", help="List all available assertions and parameters")
+    parser.add_argument("--bundle-dir", dest="bundle_dir", type=str, default=None,
+                        help="Opt-in: write a failure bundle JSON here for non-pass outcomes")
+    parser.add_argument("--resolves", dest="resolves", type=str, default=None,
+                        help="Bundle id to mark resolved; honored only on pass")
 
     args = parser.parse_args()
 
@@ -162,11 +275,17 @@ def main():
 
     try:
         res = func(**data)
-        print(json.dumps({
+        out = {
             "status": "pass",
             "assertion": args.func_name,
             "result": res
-        }))
+        }
+        # 只在传了 --resolves 且解析出问题时才多这个字段 ——
+        # 不传参时 stdout 与加 failure bundle 之前逐字节一致。
+        warn = _resolve_bundle(args.bundle_dir, args.resolves, args.func_name)
+        if warn:
+            out["resolve_warning"] = warn
+        print(json.dumps(out))
     except AssertionError as ae:
         # fail 分两类:「算错了」与「输入不足以判定」(如订单簿深度不够)。
         # 仓内评测模型早就把后者当独立语义(insufficient_depth),
@@ -174,14 +293,18 @@ def main():
         # 判据:错误文本含「不足 / insufficient」即视为数据不足。
         msg = str(ae) or "Assertion failed"
         insufficient = ("不足" in msg) or ("insufficient" in msg.lower())
+        status = "insufficient_data" if insufficient else "fail"
+        code = 3 if insufficient else 1
         print(json.dumps({
-            "status": "insufficient_data" if insufficient else "fail",
+            "status": status,
             "assertion": args.func_name,
             "error": msg,
         }))
+        if args.bundle_dir:
+            _write_bundle(args.bundle_dir, args.func_name, data, status, code, msg)
         # exit 3 = 输入不足以判定(2026-10-01 加,红队 46cdb73f 发现 6d)。
         # 与 exit 1(算错了)分开:处置动作不同 —— 1 要重算,3 要补数据。
-        sys.exit(3 if insufficient else 1)
+        sys.exit(code)
     except ArithmeticInputError as ae:
         # 数据错而非命令错(2026-10-01 D3 修复,红队 39f52d8f/78c78922 实证)。
         #
@@ -197,27 +320,36 @@ def main():
         #
         # 参数绑定失败(TypeError)仍归 exit 2,语义不变:那才是「该修命令」。
         msg = f"{type(ae).__name__}: {ae}"
+        hint = "输入数据导致算术失败(如除数为 0),属数据错而非命令错;该修正数据重跑"
         print(json.dumps({
             "status": "fail",
             "assertion": args.func_name,
             "error": msg,
-            "hint": "输入数据导致算术失败(如除数为 0),属数据错而非命令错;该修正数据重跑",
+            "hint": hint,
         }))
+        if args.bundle_dir:
+            _write_bundle(args.bundle_dir, args.func_name, data, "fail", 1, msg, hint)
         sys.exit(1)
     except TypeError as te:
+        msg = f"Parameter mismatch: {te}"
         print(json.dumps({
             "status": "error",
             "assertion": args.func_name,
-            "message": f"Parameter mismatch: {te}",
+            "message": msg,
             "expected_params": [p.name for p in inspect.signature(func).parameters.values()]
         }))
+        if args.bundle_dir:
+            _write_bundle(args.bundle_dir, args.func_name, data, "error", 2, msg)
         sys.exit(2)
     except Exception as e:
+        msg = str(e)
         print(json.dumps({
             "status": "error",
             "assertion": args.func_name,
-            "message": str(e)
+            "message": msg
         }))
+        if args.bundle_dir:
+            _write_bundle(args.bundle_dir, args.func_name, data, "error", 2, msg)
         # 断言函数内部抛的非 TypeError 异常属「调用/环境错」,同 exit 2。
         sys.exit(2)
 
