@@ -37,6 +37,10 @@ JEV(Judgment-Execution-Verification)自适应交叉验证 preset:一个注入 pe
    (代码已并入本包),别再往那边改 —— 改了两边就漂移。同理 profile 的 `dependencies` 与
    `dsh.profile.bundles` 都**不得**再列 `dsh-auto-reasoning`
    (`reconcileProfilePlugins` 会把声明了 `dsh.bundle` 的依赖自动补回 bundles,只删 bundles 会复发)。
+9. **`export const name`(宿主侧)与 `client.js` 里 `__ModuleLoader__.load({id})`(客户端)必须等于包名**
+   —— 2026-10-13 合体时照搬了 `dsh-auto-reasoning` 这两个标识,web boot 报
+   `loaded without registering "dsh-jev-preset"` 并**跳过整包**(胶囊不渲染)。
+   loader 按**包名**校验注册,不是按声明行 id。旧注释「纯标识、改名无收益」已证伪。
 
 ## 命令
 
