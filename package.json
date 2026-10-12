@@ -22,6 +22,7 @@
     "bench:real": "node benchmarks/real-prompts.mjs",
     "bench:real:label": "node benchmarks/real-prompts.mjs --label 120",
     "bench:tier": "node benchmarks/tier-effect.mjs workbuddy2api/global:deepseek-v4.1-flash 6",
+    "bench:coarse": "python benchmarks/accuracy/jevbench/coarse_coverage.py",
     "test:assertions": "python tests/test_assertions.py",
     "test:exitcodes": "python tests/test_cli_exit_codes.py",
     "test:bundle": "python tests/test_failure_bundle.py",

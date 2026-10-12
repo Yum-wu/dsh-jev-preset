@@ -282,6 +282,15 @@ def coarse_route(route) -> str:
     与 `is_three_path` 的关系由 `tests/test_coarse_route.py` **对拍**(两套独立表):
     对每一个 persona 里真实存在的标识,`coarse_route(m) == COARSE_MULTI`
     必须**当且仅当** `is_three_path(m) is True`。
+
+    覆盖率实测(2026-10-13,`benchmarks/accuracy/jevbench/coarse_coverage.py`,可复跑):
+    51 个 `_runs-*.jsonl` / `runs-*.jsonl` 共 **901 条**记录,其中 **787 条(87.3%)没有任何
+    首行标识** —— 那是协议落地前的旧记录,任何映射表都救不了,不是本表的缺陷。
+    **有标识的 114 条里映射 104 条 = 91.2%**;剩下 10 条是协议前的自由文本
+    (`三路隔离采样启动` / `3路启动` / `三路已派发 — 等待结算` / `断言不适用` 等),
+    按设计落 `COARSE_UNKNOWN` —— **显式可见,不并档**,正是这个哨兵存在的意义。
+    ⇒ 本表是**登记表**不是**白名单**:未知一律可见地落哨兵,与 `is_three_path` 的
+    「非白名单即多路」是**方向相反的两套判据**,服务于不同目的,不要互相套用。
     """
     if route is None:
         return COARSE_UNKNOWN
