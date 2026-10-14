@@ -18,9 +18,31 @@ import path from 'node:path'
 
 const START_PS1 = path.join(homedir(), '.dsh', 'start-dsh.ps1')
 
+/**
+ * BOM 感知读取。
+ *
+ * ⚠ `~/.dsh/start-dsh.ps1` 实测是 **UTF-16LE(`FF FE` BOM)**。按 utf8 读会得到满屏
+ *   U+FFFD,下面的正则一条都匹配不上,本模块直接抛 `cannot parse $dshEntry` ——
+ *   而这条报错看起来像「脚本格式变了」,实际是读法错了,排障方向被带偏。
+ *
+ *   同一个坑在本仓/本机已踩三次:codemode 的 bundle-declaration 测试、
+ *   prompt-editor 的 schemastery junction 守卫、以及这里。
+ *   凡是读 `~/.dsh/*.ps1` 的地方都必须走这个函数。
+ */
+function readTextAuto(file) {
+  const buf = readFileSync(file)
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return buf.toString('utf16le')
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
+    const swapped = Buffer.from(buf.subarray(2))
+    swapped.swap16()
+    return swapped.toString('utf16le')
+  }
+  return buf.toString('utf8').replace(/^\uFEFF/, '')
+}
+
 /** 从 start-dsh.ps1 解析 $dshEntry,返回其绝对路径(原生分隔符)。 */
 function dshEntryFromScript() {
-  const script = readFileSync(START_PS1, 'utf8')
+  const script = readTextAuto(START_PS1)
   const matched = script.match(/\$dshEntry\s*=\s*Join-Path\s+\$env:USERPROFILE\s+'([^']+)'/i)
   if (!matched) throw new Error(`cannot parse $dshEntry from ${START_PS1}`)
   return path.join(homedir(), matched[1].replace(/\\/g, path.sep))
