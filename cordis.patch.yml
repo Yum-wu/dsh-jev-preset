@@ -454,4 +454,11 @@
         # 打开后:插件总是接管,UI 里那个档位下拉不再生效 —— 这正是 auto 的本意
         #   (档位由插件按任务复杂度决定,不是由 UI 里一次性的历史选择决定)。
         # 想交回 UI 手选:把本项改回 false。
-        alwaysTakeOver: true
+        #
+        # 2026-10-15 置回 false:用户拍板默认模型改回
+        #   `workbuddy2api/global:deepseek-v4.1-flash`(x0.00 免费档),
+        #   而上游该端点**只有 high 一档**(实测 list_subagent_models:仅 high/default)
+        #   ⇒ auto 投影恒 high,接管等于空转,每轮白付一次 JEV 远程调用。
+        #   故单档模型上用固定 `reasoningEffort: high`,本项关闭。
+        #   将来默认模型若换成多档端点(如 cn 版 low/high/max),再把本项打开即可。
+        alwaysTakeOver: false
