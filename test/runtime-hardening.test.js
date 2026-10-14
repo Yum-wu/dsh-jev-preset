@@ -330,3 +330,78 @@ test('[D9] 有会话 id 时照常计数,且按会话隔离', async () => {
   );
   assert.ok(textOf(other.content).includes('本轮实际发射 1 路'), '不得串味');
 });
+
+// ── D4:同会话并发写入不得让回声记忆判错 ────────────────────────────────────
+
+test('[D4] 同会话先后写入两个档位,宿主回传任一都判 echo,不得误判成用户手选', async () => {
+  // 修复前:myWrittenEffort 存**单值**,后写者胜。同会话并发时宿主持久化的
+  //   可能是先写者那个值 ⇒ 下一轮回传它与单值记忆不等 ⇒ 判 handpicked ⇒
+  //   该会话 auto 静默失效。A/B 谁被持久化取决于时序,不是「最后一次决策」。
+  const harness = makeCtx();
+  apply(harness.ctx, {});
+
+  fireNewUserMessage(harness, 'C1', '改吧');
+  const first = await fireRequest(harness, 'C1', { model: 'm', reasoningEffort: AUTO_EFFORT_SENTINEL });
+
+  fireNewUserMessage(harness, 'C1', '重新设计整个并发状态机,防止死锁');
+  const second = await fireRequest(harness, 'C1', { model: 'm', reasoningEffort: AUTO_EFFORT_SENTINEL });
+
+  assert.notEqual(
+    first.reasoningEffort,
+    second.reasoningEffort,
+    `两个提示词必须投影出不同档位,否则本用例无意义(实得 ${first.reasoningEffort})`,
+  );
+
+  await fireRequest(harness, 'C1', { model: 'm', reasoningEffort: first.reasoningEffort });
+  assert.equal((await readEffort(harness, 'C1')).lastTakeoverVia, 'echo', '先写者的值必须判 echo');
+
+  await fireRequest(harness, 'C1', { model: 'm', reasoningEffort: second.reasoningEffort });
+  assert.equal((await readEffort(harness, 'C1')).lastTakeoverVia, 'echo', '后写者的值必须判 echo');
+});
+
+// ── D10:echo 与手选的不可分辨性必须可观测 ──────────────────────────────────
+
+test('[D10] echo 判定必须留痕 —— 协议层不可分辨,但不得静默', async () => {
+  // 用户手选的档位**恰好等于**我上轮写进去的值时,echo 与 handpicked 是同一个状态,
+  // 协议层无法区分。本插件不猜(误判 handpicked 会让 auto 永久失效,代价更大),
+  // 但必须可观测 —— 否则「auto 怎么没让位」永远查不出是判了 echo。
+  const harness = makeCtx();
+  apply(harness.ctx, {});
+
+  fireNewUserMessage(harness, 'A1', '改吧');
+  const written = (await fireRequest(harness, 'A1', { model: 'm', reasoningEffort: AUTO_EFFORT_SENTINEL }))
+    .reasoningEffort;
+
+  const before = (await readEffort(harness, 'A1')).ambiguousEchoes;
+  await fireRequest(harness, 'A1', { model: 'm', reasoningEffort: written });
+  const after = await readEffort(harness, 'A1');
+
+  assert.equal(after.lastTakeoverVia, 'echo');
+  assert.equal(after.lastTakeoverAmbiguous, true, 'echo 必须标 ambiguous');
+  assert.equal(after.ambiguousEchoes, before + 1, '计数必须递增');
+});
+
+// ── D11:RPC 回显面不得跨会话泄漏 ────────────────────────────────────────────
+
+test('[D11] 未显式传 sessionId 时不回显跨会话内容', async () => {
+  // 原实现:sessionId === '' 时回退返回全库最后一条决策,并连带回显
+  //   lastPromptText(用户真实提示词前 80 字符)、sessions(全部会话 id)、
+  //   forcedSessions。三者都是跨会话的,而「没传 sessionId」的调用者未必是那个会话。
+  const harness = makeCtx();
+  apply(harness.ctx, {});
+
+  fireNewUserMessage(harness, 'S1', '这是我的私密提示词');
+  await fireRequest(harness, 'S1', { model: 'm', reasoningEffort: AUTO_EFFORT_SENTINEL });
+
+  const anon = await readEffort(harness, '');
+  assert.equal(anon.lastPromptText, undefined, '匿名查询不得回显最近提示词');
+  assert.equal(anon.sessions, undefined, '匿名查询不得枚举会话 id');
+  assert.equal(anon.forcedSessions, undefined, '匿名查询不得枚举强制接管会话');
+
+  const explicit = await readEffort(harness, 'S1');
+  assert.ok(
+    typeof explicit.lastPromptText === 'string' && explicit.lastPromptText !== '',
+    '显式指定会话时仍应拿得到(调试需要)',
+  );
+  assert.deepEqual(explicit.sessions, ['S1'], '显式指定时只应看到该会话');
+});
