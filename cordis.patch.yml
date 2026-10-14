@@ -441,3 +441,17 @@
         # 目的:persona §三 3.1 要求「裁决时记录本轮实际发射数」,过去**纯靠模型自觉**;
         #   现在同一事实由运行时计数,可交叉核对(判分器不校验数字,这是唯一的事后审计入口)。
         emissionLedger: true
+        # 总是接管(2026-10-14 加)。
+        #
+        # ⚠ 不打开它,`agent-default-model` 里的 `reasoningEffort: auto` 就是**摆设**。
+        #   原因在宿主侧:`dsh-agent` 的 installModelSelection 用会话的
+        #   `modelSelection.lastUsed` 覆盖 agent-default-model,而那个值**一旦写入就永久留存**。
+        #   实测(2026-10-14):958 个会话 projcache 里 906 个带 `reasoningEffort`;
+        #   本会话那条还停在旧模型 `workbuddy2api/global:deepseek-v4.1-flash` + `high`。
+        #   ⇒ 宿主每轮回传那个固化值,插件每轮都判 handpicked 让位,
+        #     实测 seen=5 / takenOver=0,auto 从未接管过一次。
+        #
+        # 打开后:插件总是接管,UI 里那个档位下拉不再生效 —— 这正是 auto 的本意
+        #   (档位由插件按任务复杂度决定,不是由 UI 里一次性的历史选择决定)。
+        # 想交回 UI 手选:把本项改回 false。
+        alwaysTakeOver: true

@@ -405,3 +405,39 @@ test('[D11] 未显式传 sessionId 时不回显跨会话内容', async () => {
   );
   assert.deepEqual(explicit.sessions, ['S1'], '显式指定时只应看到该会话');
 });
+
+// ── D12:alwaysTakeOver —— UI 固化值不得让 auto 空转 ─────────────────────────
+
+test('[D12] alwaysTakeOver=false(默认)时,具体档位仍判 handpicked —— 保留手选语义', async () => {
+  const harness = makeCtx();
+  apply(harness.ctx, {});
+  await fireRequest(harness, 'P1', { model: 'm', reasoningEffort: 'high' });
+  assert.equal((await readEffort(harness, 'P1')).lastTakeoverVia, 'handpicked');
+});
+
+test('[D12] alwaysTakeOver=true 时 UI 固化档位必须被接管 —— 否则 auto 对历史会话全空转', async () => {
+  // 实测背景(2026-10-14):958 个会话 projcache 里 906 个带 reasoningEffort,
+  //   本会话那条还停在旧模型 global 版 + high。宿主每轮回传那个固化值,
+  //   不打开本开关时插件每轮都判 handpicked 让位 —— 实测 seen=5 / takenOver=0。
+  const harness = makeCtx();
+  apply(harness.ctx, { alwaysTakeOver: true });
+
+  fireNewUserMessage(harness, 'P2', '重新设计整个并发状态机,防止死锁');
+  const returned = await fireRequest(harness, 'P2', { model: 'm', reasoningEffort: 'high' });
+  const stats = await readEffort(harness, 'P2');
+
+  assert.equal(stats.lastTakeoverVia, 'always');
+  assert.equal(stats.takenOver, 1);
+  assert.ok(
+    LADDER.includes(returned.reasoningEffort),
+    `必须换成插件算出的档位,实得 ${returned.reasoningEffort}`,
+  );
+});
+
+test('[D12] alwaysTakeOver=true 也不得把哨兵漏给宿主', async () => {
+  const harness = makeCtx();
+  apply(harness.ctx, { alwaysTakeOver: true });
+  const returned = await fireRequest(harness, 'P3', { model: 'm', reasoningEffort: AUTO_EFFORT_SENTINEL });
+  assert.notEqual(returned.reasoningEffort, AUTO_EFFORT_SENTINEL);
+  assert.ok(LADDER.includes(returned.reasoningEffort));
+});
