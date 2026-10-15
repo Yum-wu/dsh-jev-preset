@@ -11,7 +11,7 @@ S1 要求「附录 A/B/C **全部条目状态明确**(修复 或 有证据地标
 - **部分已修** —— 拆解后**部分**子项已修。**必须在同一格里逐项列出**
   哪些已修、哪些没修(如 `部分已修(Round 46–48):① ③ 已修;④ 未修`),
   否则读的人无法判断还差什么。
-- **已确认无能力** —— 结论是「宿主/平台不提供该能力」,已如实标注,不是漏做
+- **已确认无能力** —— 结论是「宿主/平台不提供该能力」,已如实标注,不是漏做(**当前无条目使用** —— 词汇仍合法,保留以便下一轮使用)
 - **不修(理由)** —— 有证据地判定不该做
 - **未修(排期)** —— 认定该做但本轮未做,已排期(见 **C14**)
 
@@ -29,7 +29,7 @@ S1 要求「附录 A/B/C **全部条目状态明确**(修复 或 有证据地标
 | **A6** persona 硬编码实测数字 | **已修** | 移除;`tests/test_no_unsupported_claims.py` |
 | **A7** 无长程循环纪律 | **已修** | persona 增 §五 长程纪律 + 停止条件;`tests/test_means_markers.py` |
 | **A8** 补派失控 | **已修** | 发射上限 3(含补派)、记录实际发射数、标识路数须等于实际数;`tests/test_emission_cap.py` |
-| **A9** 三路未配异构模型 | **已确认无能力** | 红队 8dc3cbaa 实测:`dsh-tool-subagent` 的 Config schema **没有** `agentOptions` 字段,配了会被忽略。persona 已写入「异构铁律」并**如实声明该能力在本宿主不可用**。<br>**核验方法(别再用 grep 计数)**:persona 里 `agentOptions` 有 **5 处**命中,**全部是「故意不配」及其原因的说明文字**(`cordis.patch.yml:142/149/297/307`),**没有任何实际 YAML 配置**。判据应是「有无实际配置」,不是「有没有这个词」—— 我自己第一次抽验时就用错了判据,差点误判成 A9 未修 |
+| **A9** 三路未配异构模型 | **已修** | ⚠ **2026-10-15 更正(实测推翻旧表述)**:原文写「`dsh-tool-subagent` 的 Config schema **没有** `agentOptions` 字段,配了会被忽略」—— **该表述在当前运行时 `dsh-0.2.0-rc.2` 上不成立**。实测 `~/.dsh/runtime/dsh-0.2.0-rc.2/node_modules/@deepseek-ai/dsh-tool-subagent/lib/index.js`:**L258** `agentOptions: z.object({ provider, model, reasoningEffort, maxTokens })` 是 **Config 的真实字段**;**L378** 还校验 `capabilities.agentOptions`;而 `dsh-subagent-fork-in-process` 与 `dsh-subagent-spawn-in-process` 的 `capabilities.agentOptions` 均为 **`true`** ⇒ **字段存在且会生效**。<br>**但结论不变、理由变了**:它是**单个静态对象**(一个 provider/model),表达不了「三路三个不同模型」,配了只会把三路钉成同一路由 —— 把「同模型三路」从**意外**变成**设计**。故仍**故意不配**它,改用**单次调用顶层 `provider` / `model`**(运行时 `hasDelegationModelRequest` 读的就是这三个顶层字段)。<br>**可执行判据(2026-10-15 实测)**:以顶层 `provider=opencodex` / `model=workbuddy2api/cn:deepseek-v4.1-flash` 派出子代理,**成功结算**(`PROBE-OK-CN3`)⇒ 异构路由**在本宿主可用**。persona §三 3.3 与 `cordis.patch.yml:317-327` **本来就是对的**(它们写的是「单个静态对象」而非「字段不存在」)—— **只有本附录这一句错**,属「文档 ≠ 实现」族(与 C52 同源):同一个事实在两个载体上写了两种说法,而没有任何判据在看它们是否一致。<br>**核验方法(别再用 grep 计数)**:persona 里 `agentOptions` 有 **5 处**命中,**全部是「故意不配」及其原因的说明文字**(`cordis.patch.yml:142/149/297/307`),**没有任何实际 YAML 配置**。判据应是「有无实际配置」,不是「有没有这个词」—— 我自己第一次抽验时就用错了判据,差点误判成 A9 未修 |
 | **A10** gate 题口径与新门控冲突 | **已修** | `expected_gate_route()` 三值化 + `gate=None` 时跳过对错自检;`tests/test_gate_expectation.py` |
 
 ## 附录 B:度量能力缺口
