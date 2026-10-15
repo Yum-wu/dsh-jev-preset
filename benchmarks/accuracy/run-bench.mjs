@@ -11,6 +11,9 @@
  *   C0 = standard 预设 + 「单次直答」约束       (纯推理基线)
  *   C1 = standard 预设 + 「单路可执行代码」约束  (PAL 式基线,最关键的对照)
  *   C3 = jev 预设,无额外约束                    (被测对象)
+ *   N  = standard 预设,无额外约束               (中性基线)
+ *   NA = standard 预设 + 「答前必须外部验证」约束 (隔离验证指令的净效应)
+ *   J  = jev 预设,无额外约束                    (同 C3;定性三臂中的 JEV 臂)
  *
  * 可验证性:
  *   - 每行记录 session_id,可在 Web 侧栏或 tools/dump-three-path.mjs 复查原始对话
@@ -30,7 +33,7 @@ const OUT = args.out
 const CONFIGS = args.config ?? ['C1', 'C3']
 const REPS = Number(args.reps ?? 1)
 const TIMEOUT_MS = Number(args.timeout ?? 900) * 1000
-const PRESET = { C0: 'standard', C1: 'standard', C3: 'jev', A1: 'standard', A2: 'standard', C3F: 'jev' }
+const PRESET = { C0: 'standard', C1: 'standard', C3: 'jev', A1: 'standard', A2: 'standard', C3F: 'jev', N: 'standard', NA: 'standard', J: 'jev' }
 
 if (!SUITE || !OUT) {
   console.error('必须提供 --suite 与 --out')
