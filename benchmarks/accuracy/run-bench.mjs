@@ -5,7 +5,12 @@
  * 用法:
  *   node benchmarks/accuracy/run-bench.mjs --suite suite.jsonl --out runs.jsonl \
  *        --config C1 --config C3 [--reps 1] [--limit N] [--only tick,vwap] \
- *        [--provider opencodex --model combo/ds-flash --effort high] [--timeout 900] [--dry-run]
+ *        [--provider opencodex --model combo/ds-flash --effort high] [--timeout 900] [--dry-run] \
+ *        [--concurrency 3]
+ *
+ * ⚠ --concurrency 默认 1(串行)。>1 时**同时**跑 N 个会话,总墙钟约除以 N。
+ *   仅对**付费档 / 已知不限流**的路由开;免费档或曾报 429 的路由保持 1,
+ *   否则会把限流错误写进 runs.jsonl(error 字段),污染判分。先小跑 6 次看有没有 ERR。
  *
  * 配置:
  *   C0 = standard 预设 + 「单次直答」约束       (纯推理基线)
@@ -32,6 +37,7 @@ const SUITE = args.suite
 const OUT = args.out
 const CONFIGS = args.config ?? ['C1', 'C3']
 const REPS = Number(args.reps ?? 1)
+const CONC = Math.max(1, Number(args.concurrency ?? 1))
 const TIMEOUT_MS = Number(args.timeout ?? 900) * 1000
 const PRESET = { C0: 'standard', C1: 'standard', C3: 'jev', A1: 'standard', A2: 'standard', C3F: 'jev', N: 'standard', NA: 'standard', J: 'jev' }
 
@@ -154,9 +160,20 @@ async function runOne({ c, cfg, rep }) {
   return row
 }
 
-for (const [i, p] of plan.entries()) {
-  const r = await runOne(p)
-  console.log(`[${i + 1}/${plan.length}] ${p.cfg} ${p.c.id} rep${p.rep} ${r.error ? 'ERR ' + r.error : 'ok'} ` +
-    `${(r.elapsed_ms / 1000).toFixed(0)}s tok=${r.tokens ?? '-'} sub=${r.subagents ?? '-'} sid=${r.session_id}`)
+// 并发发射:--concurrency N(默认 1 = 原串行行为)。
+// 每行仍是 runOne 内 appendFileSync 原子追加,行序不保证,判分不看行序。
+let finished = 0
+const queue = plan.map((p, i) => [i, p])
+async function worker() {
+  for (;;) {
+    const item = queue.shift()
+    if (!item) return
+    const [, p] = item
+    const r = await runOne(p)
+    finished++
+    console.log(`[${finished}/${plan.length}] ${p.cfg} ${p.c.id} rep${p.rep} ${r.error ? 'ERR ' + r.error : 'ok'} ` +
+      `${(r.elapsed_ms / 1000).toFixed(0)}s tok=${r.tokens ?? '-'} sub=${r.subagents ?? '-'} sid=${r.session_id}`)
+  }
 }
+await Promise.all(Array.from({ length: Math.min(CONC, plan.length) }, () => worker()))
 console.log(`完成。判分:cd benchmarks/accuracy && python -m jevbench grade --suite <suite> --runs <runs>`)
