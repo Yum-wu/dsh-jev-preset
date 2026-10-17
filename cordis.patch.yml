@@ -264,15 +264,28 @@
           # `subagents` 注册表与 spawn/fork 后端在宿主;预设只贡献工具面。
           # `workflowEngine` 只被 agent 内部读,故同 realm 内聚。
           #
-          # ⚠ 递归阻断(2026-09-28 加固,同日修正)
-          # 子代理**继承父会话的 preset**(`dsh-subagent/lib/types/child-agent.js:158` 的 `composeFrom`),
+          # ⚠ 递归阻断(2026-09-28 加固,2026-10-17 随运行时迁移改写法)
+          # 子代理**继承父会话的 preset**(`dsh-subagent/lib/types/child-agent.js` 的 `composeFrom`),
           # 因此也会拿到本 JEV persona —— 含「命中高危即强制三路」。
           # 若不拦,子代理会自行再裂变,三路变多路,且「多数共识」的分母不再是 3。
           #
           # 手段一 `maxDepth: 1`:子代理(depth1)不可再派生(depth2 被拒)。
           #
-          # 手段二 `persona`:覆盖掉子代理继承来的 JEV persona,改为纯执行者身份,
-          # 既禁止它再裂变,也避免它输出父会话专属的 `[JEV: ...]` 裁决标识(实测已发生)。
+          # 手段二 `agentPreset: jev-executor`:子代理改挂**独立 preset**(下文第三条声明行),
+          # 身份=纯执行者,且**结构上不带 delegation 组** ⇒ 既禁止它再裂变,
+          # 也避免它输出父会话专属的 `[JEV: ...]` 裁决标识(实测已发生)。
+          #
+          # ⚠ 为什么不能再用旧写法 `persona:`(2026-10-17 实测,新运行时硬报错)
+          #   `dsh-tool-subagent` 0.2.1-rc.2 的 `lib/index.js` apply():
+          #     for (const field of ["persona", "toolFilter"])
+          #       if (Object.hasOwn(config, field)) throw new Error(
+          #         `tool-subagent: ${field} is no longer supported; configure persona and tool plugins
+          #          in an Agent Preset and select it with agentPreset (spawn only)`)
+          #   该 throw 发生在 **grep preset 挂载时**,表现是「DSH 起不来」的真相:
+          #     POST /api/session/create {agentPreset:"jev"}
+          #       → {code:"agent-preset/invalid", message:"...persona is no longer supported..."}
+          #   即:旧 `persona:` 键只要还在,任何用 agentPreset=jev 的会话(含 default)
+          #   都建不起来;与「DSH 进程没起来」是两码事。
           #
           # ❌ 已废弃(2026-09-28 实测):`toolFilter.deny: [subagent, subagent_fork, workflow]`。
           #    `tools.restrict()` 只接受**全局**工具名(`dsh-tools/lib/index.js:2906-2908` 的
@@ -310,19 +323,11 @@
                   modelSelectionSettings: true
                   backgroundMode: continuable
                   maxDepth: 1
-                  persona: |-
-                    你是 JEV 三路隔离采样的**单路执行者**。你只负责本路,**不得派生任何下级子代理**。
-
-                    纪律:
-                    - **首行输出你的路标身份**:`[Path N <角色名>]`(N 与角色名以本任务 prompt 为准)。
-                      **不要**输出 `[JEV: ...]` —— 那是裁决节点(父会话)的专属标识,不属于你。
-                    - 你的任务 prompt 是自包含的:任务全文、约束、输入数据、验收标准都在里面。
-                      你看不到父会话,不要猜、不要向用户提问。
-                    - 结论必须给出**可复算的客观依据**:完整中间量、可跑命令、实际输出。
-                      严禁用「我觉得」「已仔细检查」作为结论依据。
-                    - **量化与风控断言**:优先复用内建标准断言套件(`packages/assertions/python/jev_assertions` 或 `JevAssertions.psm1`)，消除推理随机性与手写浮点误差。
-                    - 若任务要求执行代码,在**本路专属临时目录**内执行,不要写公共路径。
-                    - 若无法完成,明确说明卡在哪一步、缺什么,不要编造结果。
+                  # 子代理的 persona 与工具面**全部**由 jev-executor 这个独立 preset 承担
+                  # (旧写法 `persona: |-` 在本运行时直接抛错,见上文「为什么不能再用旧写法」)。
+                  # ⚠ 独立 preset 是自足的:上游没有「继承父 preset」机制,故 jev-executor
+                  #   必须自带工具面;两份列表的漂移由 tests/test-subagent-preset-migration.mjs 守。
+                  agentPreset: jev-executor
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
@@ -369,7 +374,105 @@
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
 
-# ── 第二条声明行:JEV 运行时半区(自动思考程度 + 发射台账)2026-10-13 合体 ──
+# ── 第三条声明行(2026-10-17 加):JEV 子代理(执行者)preset ───────────────────
+# 消费者:`preset-jev` 的 `tool-subagent` 行 `agentPreset: jev-executor`。
+#
+# 与 preset-jev 的差异**只有两处**:
+#   ① persona 文本 = 执行者身份(原文的 tool-subagent.config.persona,逐字未改),
+#      不含裁决标识表 ⇒ 子代理不会输出父会话专属的 `[JEV: ...]`(实测发生过)。
+#   ② **不含 delegation 组** ⇒ 子代理结构上就没有 subagent/workflow 工具,
+#      递归阻断不再依赖「prompt 自律 + maxDepth 拒绝」。
+#
+# ⚠ 其余工具行必须与 preset-jev **逐行一致**:上游对独立子 preset 没有「继承父 preset」
+#   机制(`dsh-subagent/README.md`:An explicit id mounts the current available revision),
+#   所以这里漏一行 = 子代理静默少一件工具,且配置校验查不出来。
+#   漂移守卫:`tests/test-subagent-preset-migration.mjs`(逐行 deepEqual + 差集断言)。
+    - id: preset-jev-executor
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: jev-executor
+        name: JEV 三路执行者
+        description: JEV 三路隔离采样的单路执行者身份(供 subagent 工具内部选用,不是给人选的会话预设)。无 delegation 工具面,不输出 [JEV] 裁决标识。
+        order: 6
+        plugins:
+          # ── Persona:执行者身份(原文见 git 历史里 tool-subagent 的 persona 键)──
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              suffix: Your working directory is {{cwd}}.
+              prefix: |-
+                你是 JEV 三路隔离采样的**单路执行者**。你只负责本路,**不得派生任何下级子代理**。
+
+                纪律:
+                - **首行输出你的路标身份**:`[Path N <角色名>]`(N 与角色名以本任务 prompt 为准)。
+                  **不要**输出 `[JEV: ...]` —— 那是裁决节点(父会话)的专属标识,不属于你。
+                - 你的任务 prompt 是自包含的:任务全文、约束、输入数据、验收标准都在里面。
+                  你看不到父会话,不要猜、不要向用户提问。
+                - 结论必须给出**可复算的客观依据**:完整中间量、可跑命令、实际输出。
+                  严禁用「我觉得」「已仔细检查」作为结论依据。
+                - **量化与风控断言**:优先复用内建标准断言套件(`packages/assertions/python/jev_assertions` 或 `JevAssertions.psm1`)，消除推理随机性与手写浮点误差。
+                - 若任务要求执行代码,在**本路专属临时目录**内执行,不要写公共路径。
+                - 若无法完成,明确说明卡在哪一步、缺什么,不要编造结果。
+
+          # ── 工具面:与 preset-jev 逐行一致(除 delegation 组)───────────────
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: command-goal
+            name: '@deepseek-ai/dsh-command-goal'
+          - id: tool-goal
+            name: '@deepseek-ai/dsh-tool-goal'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
+
+# ── 第四条声明行:JEV 运行时半区(自动思考程度 + 发射台账)2026-10-13 合体 ──
 # JEV 的提示词半区(上面的 preset-jev)是**纯提示词**;它的三路隔离采样与结构化重算
 # 都以「按任务复杂度选思考档位」为前提 —— 档位太低,断言算错没人发现。
 # 该逻辑过去在**另一个 npm 包** `dsh-auto-reasoning` 里,由本 bundle 的这行「引用」进来。

@@ -49,22 +49,31 @@ const inserts = patch.filter((p) => p && p.insert)
 if (inserts.length !== 1) fail(`期望恰好 1 个 insert patch,实际 ${inserts.length}`)
 else ok('恰好 1 个 insert patch')
 const rows = inserts.flatMap((p) => p.insert)
-// 2026-10-05 起本组有 2 条声明行：preset-jev（agent preset）+ 运行时半区。
+// 2026-10-05 起本组有多条声明行：agent preset 声明 + 运行时半区。
 // ⚠ 2026-10-13 合体：运行时半区由 `plugin-auto-reasoning`（引用外部包
 //   `dsh-auto-reasoning`）改为 `plugin-jev-runtime`（自挂本包，代码在 lib/）。
-// 因此**按 id 定位**而不是假设 rows[0] —— 顺序一变就静默校验错对象。
+// ⚠ 2026-10-17（运行时 0.2.1-rc.2）：子代理身份迁移为**独立 preset**
+//   `preset-jev-executor`（`dsh-tool-subagent` 不再接受 `persona` / `toolFilter` 键）。
+// 因此**按 id / name 定位**而不是假设 rows[0] —— 顺序一变就静默校验错对象。
 if (rows.length < 1) fail('insert 组里没有任何声明行')
 else ok(`insert 组内 ${rows.length} 条声明行: ${rows.map((r) => r?.id).join(', ')}`)
+
+const PRESET_PKG = '@deepseek-ai/dsh-agent-preset'
+const presetRows = rows.filter((r) => r?.name === PRESET_PKG)
+if (presetRows.length < 1) fail(`insert 组里没有 ${PRESET_PKG} 声明行`)
+for (const r of presetRows) {
+  if (!/^preset-[a-z0-9-]+$/.test(String(r?.id))) fail(`preset 声明行的 Loader 行 id 应为 preset-*,实际 ${r?.id}`)
+}
 const decl = rows.find((r) => r?.id === 'preset-jev')
 if (!decl) fail('insert 组里找不到 id=preset-jev 的声明行')
 else ok('preset 声明行按 id 定位成功(id=preset-jev)')
-if (decl?.name !== '@deepseek-ai/dsh-agent-preset') fail(`声明行 name 应为 @deepseek-ai/dsh-agent-preset,实际 ${decl?.name}`)
+if (decl?.name !== PRESET_PKG) fail(`声明行 name 应为 ${PRESET_PKG},实际 ${decl?.name}`)
 else ok(`声明行 name = ${decl.name}`)
 if (decl?.id !== 'preset-jev') fail(`Loader 行 id 应为 preset-jev,实际 ${decl?.id}`)
 else ok(`Loader 行 id = ${decl.id}`)
 
 // 同组的非 preset 声明行：只允许已知的插件 id，且名字必须能被 Loader 解析
-const extraRows = rows.filter((r) => r?.id !== 'preset-jev')
+const extraRows = rows.filter((r) => r?.name !== PRESET_PKG)
 const ALLOWED_EXTRA = new Set(['plugin-jev-runtime'])
 for (const r of extraRows) {
   if (!ALLOWED_EXTRA.has(r?.id)) fail(`insert 组里出现未登记的非 preset 声明行 id=${r?.id}`)
@@ -86,22 +95,27 @@ if (runtimeRow !== undefined && decl) {
 
 // ── 3. config 字段(schemastery 契约:仅这些键被接受)────────────────────────
 console.log('\n[3] config 字段契约')
-const cfg = decl?.config ?? {}
 const allowed = new Set(['id', 'name', 'description', 'order', 'plugins'])
-for (const k of Object.keys(cfg)) if (!allowed.has(k)) fail(`未知 config 键: ${k}`)
-ok(`config 键全部合法: ${Object.keys(cfg).join(', ')}`)
-if (cfg.id !== 'jev') fail(`config.id 应为 jev,实际 ${cfg.id}`)
-else ok(`config.id = ${cfg.id}`)
-if (!/^[a-z0-9-]+$/.test(String(cfg.id))) fail(`config.id 必须是小写字母/数字/连字符: ${cfg.id}`)
-else ok('config.id 符合 ^[a-z0-9-]+$')
-if (typeof cfg.order !== 'number') fail('order 必须是数字')
-else ok(`order = ${cfg.order}`)
-for (const f of ['name', 'description']) {
-  if (typeof cfg[f] !== 'string' || cfg[f] === '') fail(`${f} 必须是非空字符串`)
+for (const p of presetRows) {
+  const cfg = p.config ?? {}
+  const at = `[${p.id}]`
+  for (const k of Object.keys(cfg)) if (!allowed.has(k)) fail(`${at} 未知 config 键: ${k}`)
+  if (!/^[a-z0-9-]+$/.test(String(cfg.id))) fail(`${at} config.id 必须匹配 ^[a-z0-9-]+$: ${cfg.id}`)
+  if (typeof cfg.order !== 'number') fail(`${at} order 必须是数字`)
+  for (const f of ['name', 'description']) {
+    if (typeof cfg[f] !== 'string' || cfg[f] === '') fail(`${at} ${f} 必须是非空字符串`)
+  }
+  if (!Array.isArray(cfg.plugins)) { fail(`${at} plugins 必须是数组`); continue }
+  ok(`${at} config 键合法 id=${cfg.id} order=${cfg.order} plugins=${cfg.plugins.length} 行`)
 }
-ok('name / description 均为非空字符串')
-if (!Array.isArray(cfg.plugins)) { fail('plugins 必须是数组'); process.exit(1) }
-ok(`plugins 是数组(${cfg.plugins.length} 行)`)
+// config.id 是会话保存的 preset 身份,必须与 Loader 行 id 区分(历史约定 preset-jev ↔ jev)
+if (decl && decl.config?.id !== 'jev') fail(`preset-jev 的 config.id 应为 jev,实际 ${decl.config?.id}`)
+else ok('preset-jev 的 config.id = jev')
+// registry:`Duplicate agent preset: <id>` 会让声明加载失败
+const presetIds = presetRows.map((p) => p?.config?.id)
+const dupPresetIds = presetIds.filter((v, i) => presetIds.indexOf(v) !== i)
+if (dupPresetIds.length) fail(`preset id 重复: ${[...new Set(dupPresetIds)].join(', ')}`)
+else ok(`preset id 唯一(${presetIds.join(', ')})`)
 
 // ── 4. 复刻 registry 的 entryListProblem 校验 ───────────────────────────────
 console.log('\n[4] 行结构校验(复刻 registry entryListProblem)')
@@ -118,59 +132,78 @@ function entryListProblem(rows, at = '') {
     }
   }
 }
-const problem = entryListProblem(cfg.plugins)
-if (problem !== undefined) fail(`entryListProblem: ${problem}`)
-else ok('entryListProblem 通过(递归含 group)')
+for (const p of presetRows) {
+  const at = `[${p.id}]`
+  const problem = entryListProblem(p.config?.plugins)
+  if (problem !== undefined) fail(`${at} entryListProblem: ${problem}`)
+  else ok(`${at} entryListProblem 通过(递归含 group)`)
 
-// 重复行 id 检查
-const ids = []
-const collect = (rs) => { for (const r of rs) { if (r.id) ids.push(r.id); if (r.group === true) collect(r.config) } }
-collect(cfg.plugins)
-const dup = ids.filter((v, i) => ids.indexOf(v) !== i)
-if (dup.length) fail(`重复行 id: ${[...new Set(dup)].join(', ')}`)
-else ok(`行 id 唯一(${ids.length} 个)`)
+  // 重复行 id 检查
+  const ids = []
+  const collect = (rs) => { for (const r of rs) { if (r.id) ids.push(r.id); if (r.group === true) collect(r.config) } }
+  collect(p.config?.plugins ?? [])
+  const dup = ids.filter((v, i) => ids.indexOf(v) !== i)
+  if (dup.length) fail(`${at} 重复行 id: ${[...new Set(dup)].join(', ')}`)
+  else ok(`${at} 行 id 唯一(${ids.length} 个)`)
+}
 
 // ── 5. isolate 私有域 ───────────────────────────────────────────────────────
 console.log('\n[5] isolate 私有隔离域')
-const groups = cfg.plugins.filter((r) => r.group === true)
-if (groups.length === 0) fail('未发现 group 行')
-for (const g of groups) {
-  const iso = g.isolate
-  const hasIso = iso && typeof iso === 'object' && Object.keys(iso).length > 0
-  console.log(`  ${hasIso ? 'OK   ' : 'FAIL '} group "${g.id}" isolate = ${JSON.stringify(iso ?? null)}`)
-  if (!hasIso) fails.push(`group ${g.id} 缺少 isolate`)
-  else if (Object.values(iso).some((v) => v !== true && typeof v !== 'string')) fail(`group ${g.id} isolate 值必须是 true 或字符串`)
+for (const p of presetRows) {
+  const at = `[${p.id}]`
+  const groups = (p.config?.plugins ?? []).filter((r) => r.group === true)
+  if (groups.length === 0) { fail(`${at} 未发现 group 行`); continue }
+  for (const g of groups) {
+    const iso = g.isolate
+    const hasIso = iso && typeof iso === 'object' && Object.keys(iso).length > 0
+    console.log(`  ${hasIso ? 'OK   ' : 'FAIL '} ${at} group "${g.id}" isolate = ${JSON.stringify(iso ?? null)}`)
+    if (!hasIso) fails.push(`${at} group ${g.id} 缺少 isolate`)
+    else if (Object.values(iso).some((v) => v !== true && typeof v !== 'string')) fail(`${at} group ${g.id} isolate 值必须是 true 或字符串`)
+  }
+  ok(`${at} 服务组 isolate 检查完毕(${groups.length} 个 group)`)
 }
-ok(`服务组 isolate 检查完毕(${groups.length} 个 group)`)
 
 // ── 6. 子插件名解析(runtime 锚点 = 声明行插件的真实位置)────────────────────
 console.log('\n[6] 子插件名可解析性(runtime 锚点)')
 const anchorReq = createRequire(pathToFileURL(`${RUNTIME}/@deepseek-ai/dsh-agent-preset/lib/index.js`))
-const names = []
-const collectNames = (rs) => { for (const r of rs) { names.push(r.name); if (r.group === true) collectNames(r.config) } }
-collectNames(cfg.plugins)
-const bare = [...new Set(names.filter((n) => !n.startsWith('cordis:') && !n.startsWith('.')))]
-let resolvable = 0
-for (const n of bare) {
-  // 直接解析 specifier 本身。子路径导出(如 .../list-agents)通常不暴露
-  // package.json,故不能用 `<name>/package.json` 判定 —— 那是探针假阳性。
-  // 回退:取包名部分解析 package.json,确认包本体存在。
-  const pkgName = n.startsWith('@') ? n.split('/').slice(0, 2).join('/') : n.split('/')[0]
-  try {
-    anchorReq.resolve(n)
-    resolvable++
-  } catch (e) {
+let resolvableTotal = 0
+let bareTotal = 0
+for (const p of presetRows) {
+  const at = `[${p.id}]`
+  const names = []
+  const collectNames = (rs) => { for (const r of rs) { names.push(r.name); if (r.group === true) collectNames(r.config) } }
+  collectNames(p.config?.plugins ?? [])
+  const bare = [...new Set(names.filter((n) => !n.startsWith('cordis:') && !n.startsWith('.')))]
+  let resolvable = 0
+  for (const n of bare) {
+    // 直接解析 specifier 本身。子路径导出(如 .../list-agents)通常不暴露
+    // package.json,故不能用 `<name>/package.json` 判定 —— 那是探针假阳性。
+    // 回退:取包名部分解析 package.json,确认包本体存在。
+    const pkgName = n.startsWith('@') ? n.split('/').slice(0, 2).join('/') : n.split('/')[0]
     try {
-      anchorReq.resolve(`${pkgName}/package.json`)
+      anchorReq.resolve(n)
       resolvable++
-      warns.push(`${n} 的入口不可解析(${e.code}),但包本体 ${pkgName} 存在`)
-    } catch (e2) {
-      fail(`无法解析 ${n} (${e.code} / 包 ${pkgName}: ${e2.code})`)
+    } catch (e) {
+      try {
+        anchorReq.resolve(`${pkgName}/package.json`)
+        resolvable++
+        warns.push(`${at} ${n} 的入口不可解析(${e.code}),但包本体 ${pkgName} 存在`)
+      } catch (e2) {
+        fail(`${at} 无法解析 ${n} (${e.code} / 包 ${pkgName}: ${e2.code})`)
+      }
     }
   }
+  resolvableTotal += resolvable
+  bareTotal += bare.length
+  ok(`${at} ${resolvable}/${bare.length} 个子插件名可解析`)
 }
-ok(`${resolvable}/${bare.length} 个子插件名可解析`)
-const builtins = [...new Set(names.filter((n) => n.startsWith('cordis:')))]
+ok(`两份 preset 合计 ${resolvableTotal}/${bareTotal} 个子插件名可解析`)
+const builtins = [...new Set((patch[0]?.insert ?? []).flatMap((p) => {
+  const names = []
+  const walk = (rs) => { for (const r of rs ?? []) { if (r?.name) names.push(r.name); if (r?.group === true) walk(r.config) } }
+  walk(p?.config?.plugins ?? [])
+  return names
+}).filter((n) => typeof n === 'string' && n.startsWith('cordis:')))]
 if (builtins.length) ok(`cordis 内建行: ${builtins.join(', ')}`)
 
 // ── 7. 无版本硬编码 / 无臃肿依赖 ────────────────────────────────────────────

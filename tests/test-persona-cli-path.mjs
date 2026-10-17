@@ -31,6 +31,16 @@ function readPersonaPrefix() {
 }
 
 /**
+ * pwsh 在 GBK 控制台(代码页 936)下把错误流写成 GBK;按 utf8 硬解会把中文变成替换字符,
+ * 让「断言库未找到」这类中文断言在本机假红(2026-10-17 实测:同一条执行行,HEAD 与工作区
+ * 逐字相同,失败只因解码)。解出替换字符就回落 GBK —— 判据不变,只修读取方式。
+ */
+function decode(buf) {
+  const utf8 = buf.toString('utf8')
+  return utf8.includes('\uFFFD') ? new TextDecoder('gbk').decode(buf) : utf8
+}
+
+/**
  * 从 persona 文本里抽出「定位 + 执行」两行,拼成一段可直接喂给 pwsh 的脚本。
  * 只抽原文,不重写 —— 否则测的是测试自己,不是 persona 的承诺。
  */
@@ -127,13 +137,13 @@ test('A1-T5: $JEV 为空时必须 fail-loud,不得退化成 `python --func`(假�
 
   const r = spawnSync('pwsh', ['-NoProfile', '-Command', `$JEV = $null\n${runLine}`], {
     cwd: PLUGIN_ROOT,
-    encoding: 'utf8',
   })
+  const output = decode(r.stdout) + decode(r.stderr)
   assert.notEqual(r.status, 0, '$JEV 为空时竟然 exit 0 —— 存在「假装跑过」路径')
-  assert.doesNotMatch(r.stdout + r.stderr, /unknown option --func/,
+  assert.doesNotMatch(output, /unknown option --func/,
     '$JEV 为空时退化成了 `python --func`,这是会被误读为「已执行」的假信号')
   // 必须是「自己知道找不到」而不是「碰巧失败」:ParserError / 语法错误同样满足上面的断言。
-  assert.match(r.stdout + r.stderr, /断言库未找到/, '失败原因不是「断言库未找到」,守卫可能已被删')
+  assert.match(output, /断言库未找到/, '失败原因不是「断言库未找到」,守卫可能已被删')
 })
 
 test('A1-T6: 删掉执行行守卫后 T5 必须报红(证明 T5 不是空壳)', () => {

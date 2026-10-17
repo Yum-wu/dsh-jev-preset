@@ -48,7 +48,8 @@ dsh --profile <你的 profile> --dump-config
 
 > 本 bundle 不声明任何 `dependencies` / `peerDependencies`，也不写死 DSH 版本号 ——
 > 声明行自带 `inject = ["agentPresets"]`，由 loader 等注册表就绪后激活，子插件路径由宿主
-> `@deepseek-ai/dsh-agent-preset` 的 baseUrl 解析。0.1.7 起实测可用，0.2.0-rc.2 上验证通过。
+> `@deepseek-ai/dsh-agent-preset` 的 baseUrl 解析。0.1.7 起实测可用，0.2.0-rc.2 上验证通过；
+> 0.2.1-rc.2 上子代理身份迁进独立预设（见下文「子代理身份：独立预设」）。
 
 ### 🔗 运行时半区：自动思考程度（2026-10-05 起，2026-10-13 合体进本包）
 
@@ -58,7 +59,7 @@ JEV 的提示词半区是**纯提示词**；它的三路隔离采样与结构化
 | | |
 |---|---|
 | 代码位置 | 本包 `lib/`（`index.js` 运行时插件、`auto-reasoning.js` 计分、`jev-client.js` SystemOne 通道、`client.js` 胶囊） |
-| 声明位置 | 与 `preset-jev` **同一个 insert 组**里的第二条声明行（`id: plugin-jev-runtime`，自挂本包） |
+| 声明位置 | 与 `preset-jev` **同一个 insert 组**里的第三条声明行（`id: plugin-jev-runtime`，自挂本包） |
 | 做什么 | ① 把模型配置里的 `reasoningEffort: auto` 哨兵换算成该模型自己的合法档位；② 数「本轮实际发射了几路」（发射台账） |
 | 历史 | 2026-10-05 → 2026-10-13 期间它在**另一个 npm 包** [`dsh-auto-reasoning`](https://github.com/Yum-wu/dsh-auto-reasoning) 里，由本 bundle 的这行**引用**进来 |
 
@@ -78,7 +79,8 @@ JEV 的提示词半区是**纯提示词**；它的三路隔离采样与结构化
 > 当时排在本包**之后** ⇒ 它自己那条赢，**本包写在该行 config 里的值全部失效**。
 
 合体后本包**自挂**（`name: 'dsh-jev-preset'`），同 id 重复的入口消失。
-`node validate.mjs` 会校验「附属声明行必须是 `plugin-jev-runtime` 且自挂本包」，
+`node validate.mjs` 会校验「每条 preset 声明行的 config.id / 结构 / isolate / 子插件可解析」，
+附属声明行必须是 `plugin-jev-runtime` 且自挂本包，
 并**显式否决**旧的 `plugin-auto-reasoning` 形态。
 
 #### ⚠ 安装 / 升级须知
@@ -94,6 +96,29 @@ JEV 的提示词半区是**纯提示词**；它的三路隔离采样与结构化
   （不是 `high` —— 哨兵没了就没有任何人做换算）。
 - ⚠ **auto 只对新会话生效**。宿主 `dsh-agent` 的后置拾取器只认 session request header 里
   持久化的 UI 选择，改配置对已有会话无效。
+
+#### 子代理身份：独立预设（2026-10-17 起）
+
+`subagent` 每派一次，子代理的 persona 与工具面都由一个 **Agent Preset** 决定。
+0.2.0 之前本包把覆盖用的 `persona:` 直接写在 `tool-subagent` 行上；**0.2.1-rc.2** 起
+`dsh-tool-subagent` 的 `apply()` 见到该键就抛：
+
+```
+tool-subagent: persona is no longer supported; configure persona and tool plugins
+in an Agent Preset and select it with agentPreset (spawn only)
+```
+
+抛点在**preset 挂载时**，不是启动时 —— 宿主照常响应，而**任何**用 `agentPreset: jev`
+（含注册表 default）建会话的路径都以 `agent-preset/invalid` 失败。2026-10-17 本机实测：
+`POST /api/session/create` 可复现该错，同时 DSH 进程健康、端口在听。
+用户侧看到的现象就是「DSH 更新后起不来了」。
+
+迁移：多一条声明行 `preset-jev-executor`（`config.id: jev-executor`），它自带执行者 persona
+**和**整套工具行；`tool-subagent` 行只剩 `agentPreset: jev-executor`。
+⚠ 独立选中的 preset **不继承**父 preset 的组合（`dsh-subagent/README.md`：显式 id 挂载的是
+当前可用修订，不是父组合），所以两份 plugins 列表必须逐行一致；唯一允许的差异是
+`delegation` 组 —— 执行者预设里**没有**它，递归阻断由此从「提示词自律」变成「结构上无工具可调」。
+漂移守卫：`tests/test-subagent-preset-migration.mjs`。
 
 #### 发射台账（2026-10-13 加）
 
@@ -203,7 +228,7 @@ python $JEV --func tick_floor --args '{"raw_price": 67432.178, "tick_size": 0.01
 
 已核实：
 
-- **递归阻断** `maxDepth: 1` — 子代理不可再派生，实测孙会话 0，触发抛 `SubagentDepthError`。
+- **递归阻断** `maxDepth: 1` — 子代理不可再派生，实测孙会话 0，触发抛 `SubagentDepthError`；2026-10-17 起执行者预设里**根本没有** `subagent` / `workflow` 行，无从调用 —— 深度限制退为第二道。
 - **服务私有隔离域** `isolate` — compaction / delegation 限定在独立 realm，`validate.mjs` 静态核查。
 - **断言库护栏逐条覆盖** — 护栏补测与变异测试（`mutation testing`）全量覆盖，通过反向与变异用例杜绝假绿。
 - **退出码契约四值互斥** — 四值退出码由单测逐格锁定，杜绝将调用错误误报为计算错误。

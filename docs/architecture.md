@@ -58,9 +58,13 @@ graph TD
 
 ## 四、关键防线：递归阻断与深度限制
 
-子代理在 DeepSeek Harness 中会继承父会话的预设配置。若不加防御，子代理遇到高危任务将继续裂变为孙代理，引发指数级上下文爆炸与资源耗尽。
-- **深度硬性限制**: 配置 `maxDepth: 1`，引擎层调用 `resolveChildDepth()` 时直接抛出 `SubagentDepthError` 阻断孙代理派生；
-- **Persona 角色覆盖**: 子代理注入专属执行者 Persona，剥离父会话特权，禁止其输出 `[JEV: ...]` 裁决头；
+子代理在 DeepSeek Harness 中的预设归属取决于派发方式：默认（不给 `agentPreset`）**加入父会话的当前预设修订**（`dsh-subagent/lib/types/child-agent.js` 的 `composeFrom`）；显式给 `agentPreset` 则**挂载那个独立预设**（`dsh-subagent/README.md`：显式 id 挂载的是当前可用修订，不是父组合）。若不加防御，子代理遇到高危任务将继续裂变为孙代理，引发指数级上下文爆炸与资源耗尽。
+- **结构上无 delegatable 工具（2026-10-17 起，第一道）**: 子代理挂载独立预设 `jev-executor`，其 plugins 列表**不含 delegation 组** ⇒ 子代理手里根本没有 `subagent` / `workflow` 工具，递归阻断不再依赖提示词自律；
+- **深度硬性限制（第二道）**: 配置 `maxDepth: 1`，引擎层调用 `resolveChildDepth()` 时直接抛出 `SubagentDepthError` 阻断孙代理派生；
+- **Persona 角色覆盖**: 子代理由独立预设注入专属执行者 Persona，剥离父会话特权，禁止其输出 `[JEV: ...]` 裁决头。
+  ⚠️ 写法更正（2026-10-17，运行时 0.2.1-rc.2）：旧写法是把 `persona:` 直接写在 `tool-subagent` 行上，
+  该键在新运行时被 `apply()` 硬拒（`persona is no longer supported ... select it with agentPreset`），
+  且抛点在 **preset 挂载时** ⇒ 任何 `agentPreset: jev` 的会话都建不起来。现已迁移为独立预设 + `agentPreset`；
 - **角色唯一性（仅纪律，非程序强制）**: 派发前由模型自行核对三角色不重复。
   ⚠️ 更正（2026-09-28）：历史版本声称此处有"角色互斥锁"在运行时校验，
   经核查**不成立** —— `JevRoleRegistry` 仅存在于 `tests/orchestration-benchmark.mjs`，

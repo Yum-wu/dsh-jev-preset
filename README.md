@@ -44,7 +44,8 @@ Remove the same way: `dsh plugin --profile <your-profile> remove dsh-jev-preset`
 > This bundle declares no `dependencies` / `peerDependencies` and hardcodes no DSH version.
 > The declaration row ships `inject = ["agentPresets"]`, so the loader activates it once the registry is ready,
 > and sub-plugin paths resolve from the host `@deepseek-ai/dsh-agent-preset` baseUrl.
-> Tested working on 0.2.0-rc.2.
+> Tested working on 0.2.1-rc.2. On that runtime the sub-agent identity moved into a dedicated
+> preset — see "Sub-agent identity lives in its own preset" below.
 
 ### Runtime half: auto reasoning effort (merged in 2026-10-13)
 
@@ -57,7 +58,7 @@ self-mounting row (`id: plugin-jev-runtime`, `name: 'dsh-jev-preset'`).
 | | |
 |---|---|
 | Code | `lib/` — `index.js` (runtime plugin), `auto-reasoning.js` (scoring), `jev-client.js` (SystemOne channel), `client.js` (the composer pill) |
-| Row | second row of the same `insert` group in `cordis.patch.yml` |
+| Row | third row of the same `insert` group in `cordis.patch.yml` |
 | Does | ① projects the `reasoningEffort: auto` sentinel onto the model's own ladder; ② counts how many paths this turn actually launched (emission ledger) |
 
 **Why merge: duplicate ids are silently overridden, not rejected.** The old row was
@@ -80,6 +81,32 @@ runtime's own `loadProfileDirectory` + `composeEntries`): the composed tree carr
 `dsh.profile.bundles` **and** from `dependencies` — otherwise its own bundle layer mounts a second copy.
 Removing only `bundles` is not enough: `reconcileProfilePlugins` re-adds any dependency that declares
 `dsh.bundle`. `node validate.mjs` rejects the old row shape outright.
+
+### Sub-agent identity lives in its own preset (2026-10-17)
+
+Every `subagent` call spawns a child whose persona and tool list come from an **Agent Preset**.
+Until 0.2.0 this package instead put an overriding `persona:` on its `tool-subagent` row;
+on **0.2.1-rc.2** `dsh-tool-subagent`'s `apply()` rejects that key outright:
+
+```
+tool-subagent: persona is no longer supported; configure persona and tool plugins
+in an Agent Preset and select it with agentPreset (spawn only)
+```
+
+It throws at **preset-mount time, not at boot** — so the host answers fine while every
+session created with `agentPreset: jev` (including the registry default) fails with
+`agent-preset/invalid`. Measured 2026-10-17 on this box: `POST /api/session/create`
+returns that error while the DSH process is healthy and listening. The symptom on the
+user's side is "DSH will not start after the update".
+
+Migration: a second declaration row `preset-jev-executor` (`config.id: jev-executor`)
+carries the executor persona **and** the tool rows; the `tool-subagent` row now only
+declares `agentPreset: jev-executor`. An independently selected preset does **not**
+inherit the parent's composition (`dsh-subagent/README.md`: an explicit id mounts the
+current available revision), so the two plugin lists must agree row by row. The only
+permitted difference is the `delegation` group, absent from the executor preset —
+that is what makes recursion impossible structurally rather than by prompt discipline.
+Guarded by `tests/test-subagent-preset-migration.mjs`.
 
 ### Emission ledger (2026-10-13)
 
@@ -217,7 +244,7 @@ python $JEV --func tick_floor --args '{"raw_price": 67432.178, "tick_size": 0.01
 
 Present and verified:
 
-- **Recursion block** `maxDepth: 1` — subagents cannot spawn further; measured 0 grandchild sessions, engine throws `SubagentDepthError`.
+- **Recursion block** `maxDepth: 1` — subagents cannot spawn further; measured 0 grandchild sessions, engine throws `SubagentDepthError`. Since 2026-10-17 the executor preset carries **no** `subagent` / `workflow` rows at all, so there is nothing to call: the depth limit is the second line of defence, not the first.
 - **Isolated service realms** — compaction / delegation live in private realms; checked statically by `validate.mjs`.
 - **Per-guardrail coverage in the assertion library** — 5 of 28 `assert`s (budget penetration / min-notional / depth / non-positive adjusted price / tz fallback branch) could be deleted with all tests still green. Now covered and **mutation-verified** (`npm run test:mutation`).
 - **Four/five mutually exclusive exit codes** — `0` not-rising / `1` rising or persistently high / `2` malformed ledger / `3` insufficient sample / `4` rollback suspected. In JSON, `_ok` is **three-state** (`true` / `false` / `null`); `null` means "verdict unusable", not "you may continue".
