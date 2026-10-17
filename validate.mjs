@@ -218,6 +218,34 @@ else ok('dsh.bundle.patch = ./cordis.patch.yml')
 if (/\d+\.\d+\.\d+/.test(patchText.replace(/#.*$/gm, ''))) warns.push('patch 非注释部分出现疑似版本号')
 ok('patch 非注释部分无版本号字面量')
 
+// ── 8. persona 变量白名单(未注册变量 = 组装期硬错,该 preset 每一轮都起不来)──
+console.log('\n[8] persona 变量白名单')
+// 运行时 `dsh-system-prompt` 的 interpolate 只认**已注册**变量:0.2.1 实测只注册
+// provider / model。其余(如 0.2.0 时代可用的 `{{cwd}}`)会抛
+//   unknown prompt variable "{{cwd}}" in section "deployment:persona-suffix"
+// 抛点在 persona 组装期 ⇒ 该 preset 的**每一轮**都失败,且只在真实会话里暴露
+// (2026-10-17 实测)。上游 README 的迁移条目点名要求删掉这句子句,工作目录改由
+// working-directory 服务以字面用户上下文提供。
+const REGISTERED_VARIABLES = new Set(['model', 'provider'])
+let personaRefs = 0
+for (const p of presetRows) {
+  const at = `[${p.id}]`
+  for (const row of p.config?.plugins ?? []) {
+    if (row?.name !== '@deepseek-ai/dsh-persona') continue
+    for (const key of ['prefix', 'suffix']) {
+      const text = row.config?.[key]
+      if (typeof text !== 'string') continue
+      for (const m of text.matchAll(/\{\{([^{}]*)\}\}/g)) {
+        personaRefs++
+        if (!REGISTERED_VARIABLES.has(m[1])) {
+          fail(`${at} persona.${key} 引用未注册变量 {{${m[1]}}} —— 组装期抛错,该 preset 每一轮都起不来`)
+        }
+      }
+    }
+  }
+}
+ok(`persona 变量引用 ${personaRefs} 处,全部在白名单(${[...REGISTERED_VARIABLES].sort().join(', ')})内`)
+
 // ── 汇总 ────────────────────────────────────────────────────────────────────
 console.log('\n' + '='.repeat(60))
 if (warns.length) { console.log('警告:'); warns.forEach((w) => console.log(`  - ${w}`)) }

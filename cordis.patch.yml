@@ -25,10 +25,13 @@
           # ── Persona:JEV 模式全部纪律的注入点 ──────────────────────────────
           # prefix 是模板,`{{model}}` 在组装时解析;不使用 complete:true,
           # 以便保留宿主自身的工具指引段与 runtime-context 快照。
+          # ⚠ 只许引用运行时**已注册**的变量(`{{model}}` / `{{provider}}`)。0.2.1 起
+          #   `{{cwd}}` 未注册且属硬错:persona 组装直接抛 `unknown prompt variable`
+          #   ⇒ 该 preset 的**每一轮**都起不来(2026-10-17 实测)。工作目录由上游的
+          #   working-directory 服务以字面用户上下文提供,不需要也不许在这里拼。
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              suffix: Your working directory is {{cwd}}.
               prefix: |-
                 你是 JEV(Judgment-Execution-Verification)自适应交叉验证模式的执行体,运行于 {{model}}。
 
@@ -396,10 +399,10 @@
         order: 6
         plugins:
           # ── Persona:执行者身份(原文见 git 历史里 tool-subagent 的 persona 键)──
+          # ⚠ 同 preset-jev:不得引用未注册变量(0.2.1 起 `{{cwd}}` 是硬错,会让子代理轮次抛错)。
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              suffix: Your working directory is {{cwd}}.
               prefix: |-
                 你是 JEV 三路隔离采样的**单路执行者**。你只负责本路,**不得派生任何下级子代理**。
 
