@@ -1,4 +1,4 @@
-# dsh-jev-preset 工作区规则
+# dsh-yum-preset 工作区规则
 
 > 本文件只管**本插件特有**的约定;通用规则(沟通方式、红线、自主边界)在 `~/.dsh/AGENTS.md`;
 > **BOM 表与其余本机运维硬规则已迁到 `Desktop\DeepSeekHarness\AGENTS.md`**(2026-10-07,只在该工作区自动注入)。
@@ -29,7 +29,7 @@ JEV(Judgment-Execution-Verification)自适应交叉验证 preset:一个注入 pe
    `@deepseek-ai/cordis-plugin-loader/src/config/group.ts:48-65` 的 `EntryGroup.update()` 用
    `Object.fromEntries(config.map(o => [o.id, o]))` 建映射 ⇒ 同 id 只创建一条 entry。
    bundle 层顺序 = `dsh.profile.bundles` 顺序,**排在后面的赢**。
-   ⇒ 本包 `cordis.patch.yml` 的 `plugin-jev-runtime` **不得**与任何其他包/用户层的同 id 行共存;
+   ⇒ 本包 `cordis.patch.yml` 的 `plugin-yum-runtime` **不得**与任何其他包/用户层的同 id 行共存;
    ⇒ 本包**不得**被放进 `dsh.profile.bundles` 之外再手写一遍同 id 行。
    判据:预检脚本 `%TEMP%\_tmp-jev-verify\compose-check.mjs`(走运行时自己的
    `loadProfileDirectory` + `composeEntries`,不启动服务),输出 `duplicate ids at compose level`。
@@ -39,7 +39,7 @@ JEV(Judgment-Execution-Verification)自适应交叉验证 preset:一个注入 pe
    (`reconcileProfilePlugins` 会把声明了 `dsh.bundle` 的依赖自动补回 bundles,只删 bundles 会复发)。
 9. **`export const name`(宿主侧)与 `client.js` 里 `__ModuleLoader__.load({id})`(客户端)必须等于包名**
    —— 2026-10-13 合体时照搬了 `dsh-auto-reasoning` 这两个标识,web boot 报
-   `loaded without registering "dsh-jev-preset"` 并**跳过整包**(胶囊不渲染)。
+   `loaded without registering "dsh-yum-preset"` 并**跳过整包**(胶囊不渲染)。
    loader 按**包名**校验注册,不是按声明行 id。旧注释「纯标识、改名无收益」已证伪。
 
 ## 命令
@@ -55,7 +55,7 @@ npm run validate
 
 | 路径 | 是什么 |
 |---|---|
-| `cordis.patch.yml` | persona 正典(`prefix` 块)+ preset 配置 + 运行时半区声明行(`plugin-jev-runtime`) |
+| `cordis.patch.yml` | persona 正典(`prefix` 块)+ preset 配置 + 运行时半区声明行(`plugin-yum-runtime`) |
 | `lib/` | **运行时半区**(2026-10-13 由 `dsh-auto-reasoning` 并入):`index.js` 插件体 / `auto-reasoning.js` 计分 / `jev-client.js` SystemOne 通道 / `client.js` 客户端胶囊 |
 | `test/` | 运行时半区的 `.js` 测试(`node --test "test/*.test.js"`);⚠ 与 `tests/`(元判据)是**两个**目录,别混 |
 | `packages/assertions/` | 断言库:Python CLI(`--func <名>`)+ PS 模块 `JevAssertions.psm1`;CLI 退出码契约 0/1/2/3 |

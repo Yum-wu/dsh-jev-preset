@@ -1,6 +1,6 @@
-# dsh-jev-preset
+# dsh-yum-preset
 
-[![CI](https://github.com/Yum-wu/dsh-jev-preset/actions/workflows/ci.yml/badge.svg)](https://github.com/Yum-wu/dsh-jev-preset/actions)
+[![CI](https://github.com/Yum-wu/dsh-yum-preset/actions/workflows/ci.yml/badge.svg)](https://github.com/Yum-wu/dsh-yum-preset/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Platform: DeepSeek Harness](https://img.shields.io/badge/Platform-DeepSeek%20Harness-black.svg)](https://github.com/deepseek-ai/deepseek-harness)
 
@@ -33,7 +33,7 @@ JEV 架构将任务严格分级：**日常任务单次高速直出；确定性�
 这是一个标准的 DSH bundle：一个 npm 包，携带一层 `cordis.patch.yml`，挂进 profile 的 loader 树。
 
 ```bash
-dsh plugin --profile <你的 profile> add dsh-jev-preset
+dsh plugin --profile <你的 profile> add dsh-yum-preset
 ```
 
 装完后校验配置层已生效（不必启动服务）：
@@ -42,9 +42,9 @@ dsh plugin --profile <你的 profile> add dsh-jev-preset
 dsh --profile <你的 profile> --dump-config
 ```
 
-预期能看到一行 `# == dsh-jev-preset`。然后启动 DSH 即可在会话预设列表里选到 **JEV 自适应交叉验证**。
+预期能看到一行 `# == dsh-yum-preset`。然后启动 DSH 即可在会话预设列表里选到 **JEV 自适应交叉验证**。
 
-卸载走同一入口：`dsh plugin --profile <你的 profile> remove dsh-jev-preset`。
+卸载走同一入口：`dsh plugin --profile <你的 profile> remove dsh-yum-preset`。
 
 > 本 bundle 不声明任何 `dependencies` / `peerDependencies`，也不写死 DSH 版本号 ——
 > 声明行自带 `inject = ["agentPresets"]`，由 loader 等注册表就绪后激活，子插件路径由宿主
@@ -59,7 +59,7 @@ JEV 的提示词半区是**纯提示词**；它的三路隔离采样与结构化
 | | |
 |---|---|
 | 代码位置 | 本包 `lib/`（`index.js` 运行时插件、`auto-reasoning.js` 计分、`jev-client.js` SystemOne 通道、`client.js` 胶囊） |
-| 声明位置 | 与 `preset-jev` **同一个 insert 组**里的第三条声明行（`id: plugin-jev-runtime`，自挂本包） |
+| 声明位置 | 与 `preset-yum` **同一个 insert 组**里的第三条声明行（`id: plugin-yum-runtime`，自挂本包） |
 | 做什么 | ① 把模型配置里的 `reasoningEffort: auto` 哨兵换算成该模型自己的合法档位；② 数「本轮实际发射了几路」（发射台账） |
 | 历史 | 2026-10-05 → 2026-10-13 期间它在**另一个 npm 包** [`dsh-auto-reasoning`](https://github.com/Yum-wu/dsh-auto-reasoning) 里，由本 bundle 的这行**引用**进来 |
 
@@ -78,9 +78,9 @@ JEV 的提示词半区是**纯提示词**；它的三路隔离采样与结构化
 > 真正的危害是**静默覆盖**：bundle 层顺序 = `dsh.profile.bundles` 顺序，`dsh-auto-reasoning`
 > 当时排在本包**之后** ⇒ 它自己那条赢，**本包写在该行 config 里的值全部失效**。
 
-合体后本包**自挂**（`name: 'dsh-jev-preset'`），同 id 重复的入口消失。
+合体后本包**自挂**（`name: 'dsh-yum-preset'`），同 id 重复的入口消失。
 `node validate.mjs` 会校验「每条 preset 声明行的 config.id / 结构 / isolate / 子插件可解析」，
-附属声明行必须是 `plugin-jev-runtime` 且自挂本包，
+附属声明行必须是 `plugin-yum-runtime` 且自挂本包，
 并**显式否决**旧的 `plugin-auto-reasoning` 形态。
 
 #### ⚠ 安装 / 升级须知
@@ -90,7 +90,7 @@ JEV 的提示词半区是**纯提示词**；它的三路隔离采样与结构化
   `dsh-auto-reasoning`，**必须移除** —— 否则它自己的 bundle 层会再挂一份旧代码，
   两个实现同时接管 `agent/request`。
   判据：profile 的 `cordis.patch.yml` 里 `plugin-codemode` 段的注释曾说明这一点。
-- **profile 的 `cordis.patch.yml` 不得再单独 insert `plugin-jev-runtime`** ——
+- **profile 的 `cordis.patch.yml` 不得再单独 insert `plugin-yum-runtime`** ——
   同 id 重复会按上面的规则**静默覆盖**（不是报错，更难查）。
 - ⚠ **连带取舍**：卸载 jev preset = 一并失去档位换算，思考档位回落到**模型默认档**
   （不是 `high` —— 哨兵没了就没有任何人做换算）。
@@ -113,7 +113,7 @@ in an Agent Preset and select it with agentPreset (spawn only)
 `POST /api/session/create` 可复现该错，同时 DSH 进程健康、端口在听。
 用户侧看到的现象就是「DSH 更新后起不来了」。
 
-迁移：多一条声明行 `preset-jev-executor`（`config.id: jev-executor`），它自带执行者 persona
+迁移：多一条声明行 `preset-yum-executor`（`config.id: yum-executor`），它自带执行者 persona
 **和**整套工具行；`tool-subagent` 行只剩 `agentPreset: jev-executor`。
 ⚠ 独立选中的 preset **不继承**父 preset 的组合（`dsh-subagent/README.md`：显式 id 挂载的是
 当前可用修订，不是父组合），所以两份 plugins 列表必须逐行一致；唯一允许的差异是
@@ -204,7 +204,7 @@ Python 面 **18 个**断言，PS 面**只有 3 个**（`Assert-JevTickFloor` / `
 
 ```powershell
 # 1. 动态定位断言 CLI 入口
-$JEV = @(Resolve-Path "$env:USERPROFILE\.dsh\profiles\*\node_modules\dsh-jev-preset\packages\assertions\python\jev_assertions\cli.py" -ErrorAction SilentlyContinue | Sort-Object Path)[0].Path
+$JEV = @(Resolve-Path "$env:USERPROFILE\.dsh\profiles\*\node_modules\dsh-yum-preset\packages\assertions\python\jev_assertions\cli.py" -ErrorAction SilentlyContinue | Sort-Object Path)[0].Path
 if (-not (Test-Path $JEV)) { $JEV = @(Get-ChildItem . -Recurse -Depth 5 -Directory -Filter jev_assertions)[0].FullName + '\cli.py' }
 if (-not (Test-Path $JEV)) { throw "断言库未找到($JEV)" }
 

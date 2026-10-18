@@ -1,7 +1,7 @@
 // 安装前最强静态验证:调用官方真实函数,而非复刻逻辑。
 //   loadOverlayPatches  — 与 boot() 读取 bundle patch 完全同一条代码路径
 //   applyEntryPatches   — 与 cordis-plugin-include 合成 entry 树完全同一条代码路径
-// 目的:证明这个 bundle 被 Loader 接受后,能正确地把 preset-jev 行合入 entry 树。
+// 目的:证明这个 bundle 被 Loader 接受后,能正确地把 preset 行合入 entry 树。
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { runtimeNodeModules } from './runtime-path.mjs'
 
 const RUNTIME = runtimeNodeModules()
-const BUNDLE = 'C:/Users/Yum/Desktop/DeepSeekHarness/plugins/dsh-jev-preset'
+const BUNDLE = 'C:/Users/Yum/Desktop/DeepSeekHarness/plugins/dsh-yum-preset'
 
 const appBoot = await import(pathToFileURL(`${RUNTIME}/@deepseek-ai/dsh-app-boot/lib/index.js`).href)
 const include = await import(pathToFileURL(`${RUNTIME}/@deepseek-ai/cordis-plugin-include/lib/index.js`).href)
@@ -53,14 +53,16 @@ if (skipped.length) {
 console.log(`  OK    全部 patch 应用成功,无跳过`)
 
 console.log('\n[D] 合成结果校验')
-const jevRow = merged.find((r) => r.id === 'preset-jev')
-if (!jevRow) { console.log('  FAIL  合成树中找不到 preset-jev 行'); process.exit(1) }
-console.log(`  OK    preset-jev 行已合入`)
+// 按 config.id(会话持久化外键)定位,不按 Loader 行 id —— 行 id 是可改命名空间,
+// 写死它会让「改标识」把本校验弄红却没人发现(2026-10-19 实测:改名后这里静默 FAIL)。
+const jevRow = merged.find((r) => r.name === '@deepseek-ai/dsh-agent-preset' && r.config?.id === 'jev')
+if (!jevRow) { console.log('  FAIL  合成树中找不到 config.id=jev 的 preset 行(会话外键,不可改名)'); process.exit(1) }
+console.log(`  OK    preset 行已合入(Loader 行 id=${jevRow.id})`)
 console.log(`        name   = ${jevRow.name}`)
 console.log(`        id     = ${jevRow.config.id}`)
 console.log(`        order  = ${jevRow.config.order}`)
 console.log(`        plugins= ${jevRow.config.plugins.length} 行`)
-if (jevRow.config.id !== 'jev') { console.log('  FAIL  config.id 错误'); process.exit(1) }
+if (!/^preset-[a-z0-9-]+$/.test(String(jevRow.id))) { console.log(`  FAIL  Loader 行 id 形状应为 preset-*: ${jevRow.id}`); process.exit(1) }
 if (jevRow.name !== '@deepseek-ai/dsh-agent-preset') { console.log('  FAIL  name 错误'); process.exit(1) }
 
 // 与既有预设 id 冲突检查(registry 对重复 id 抛错)
@@ -79,9 +81,10 @@ console.log(`  OK    Loader 行 id 无冲突(${loaderIds.length} 行)`)
 // 这不是幂等性缺陷 —— profile 加载时每个 patch 层只应用一次;此处只确认
 // 语义与官方一致(applyEntryPatches 源码:`if (insert) { ... data.push(...insert) }`)。
 const twice = include.applyEntryPatches(merged, patches, () => {})
-const jevCount = twice.filter((r) => r.id === 'preset-jev').length
+// 同样按 config.id 计数,不按 Loader 行 id(理由见 [D] 段)
+const jevCount = twice.filter((r) => r.name === '@deepseek-ai/dsh-agent-preset' && r.config?.id === 'jev').length
 if (jevCount !== 2) {
-  console.log(`  FAIL  insert 语义不符:重复应用后 preset-jev 行数 = ${jevCount},期望 2`)
+  console.log(`  FAIL  insert 语义不符:重复应用后 config.id=jev 的 preset 行数 = ${jevCount},期望 2`)
   process.exit(1)
 }
 console.log('  OK    insert 语义与官方一致(追加;单次加载只应用一层)')

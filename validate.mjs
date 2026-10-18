@@ -51,7 +51,7 @@ else ok('恰好 1 个 insert patch')
 const rows = inserts.flatMap((p) => p.insert)
 // 2026-10-05 起本组有多条声明行：agent preset 声明 + 运行时半区。
 // ⚠ 2026-10-13 合体：运行时半区由 `plugin-auto-reasoning`（引用外部包
-//   `dsh-auto-reasoning`）改为 `plugin-jev-runtime`（自挂本包，代码在 lib/）。
+//   `dsh-auto-reasoning`）改为 `plugin-yum-runtime`（自挂本包，代码在 lib/）。
 // ⚠ 2026-10-17（运行时 0.2.1-rc.2）：子代理身份迁移为**独立 preset**
 //   `preset-yum-executor`（`dsh-tool-subagent` 不再接受 `persona` / `toolFilter` 键）。
 // 因此**按 id / name 定位**而不是假设 rows[0] —— 顺序一变就静默校验错对象。
@@ -76,16 +76,16 @@ else if (decl) ok(`Loader 行 id = ${decl.id}(命名空间,可随包名改)`)
 
 // 同组的非 preset 声明行：只允许已知的插件 id，且名字必须能被 Loader 解析
 const extraRows = rows.filter((r) => r?.name !== PRESET_PKG)
-const ALLOWED_EXTRA = new Set(['plugin-jev-runtime'])
+const ALLOWED_EXTRA = new Set(['plugin-yum-runtime'])
 for (const r of extraRows) {
   if (!ALLOWED_EXTRA.has(r?.id)) fail(`insert 组里出现未登记的非 preset 声明行 id=${r?.id}`)
   else ok(`附属声明行 id=${r.id} name=${r.name}`)
 }
-const runtimeRow = extraRows.find((r) => r?.id === 'plugin-jev-runtime')
+const runtimeRow = extraRows.find((r) => r?.id === 'plugin-yum-runtime')
 if (runtimeRow !== undefined && decl) {
   // 自挂：name 必须是本包名，否则 Loader 解析到别的包（或解析不到）→ 整条不激活。
   if (runtimeRow.name !== 'dsh-yum-preset') fail(`运行时半区应自挂本包，name 实际 ${runtimeRow.name}`)
-  else ok('plugin-jev-runtime 自挂本包（name=dsh-yum-preset）')
+  else ok('plugin-yum-runtime 自挂本包（name=dsh-yum-preset）')
   // ⚠ 旧形态必须绝迹：`plugin-auto-reasoning` 指向外部包 `dsh-auto-reasoning`，
   //   它与对方自己的 bundle 层同 id ⇒ 合成层重复、后者胜 ⇒ 本包 config 静默失效。
   if (extraRows.some((r) => r?.id === 'plugin-auto-reasoning')) {

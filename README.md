@@ -1,6 +1,6 @@
-# dsh-jev-preset
+# dsh-yum-preset
 
-[![CI](https://github.com/Yum-wu/dsh-jev-preset/actions/workflows/ci.yml/badge.svg)](https://github.com/Yum-wu/dsh-jev-preset/actions)
+[![CI](https://github.com/Yum-wu/dsh-yum-preset/actions/workflows/ci.yml/badge.svg)](https://github.com/Yum-wu/dsh-yum-preset/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 > **English** | [简体中文](README.zh-CN.md)
@@ -28,7 +28,7 @@ Single-session models fail on quantitative work in three ways:
 A standard DSH bundle: an npm package carrying one `cordis.patch.yml` layer, mounted into the profile's loader tree.
 
 ```
-dsh plugin --profile <your-profile> add dsh-jev-preset
+dsh plugin --profile <your-profile> add dsh-yum-preset
 ```
 
 Verify the layer landed without booting:
@@ -37,9 +37,9 @@ Verify the layer landed without booting:
 dsh --profile <your-profile> --dump-config
 ```
 
-You should see a `# == dsh-jev-preset` layer. Then boot — **JEV Cross-Verification** appears in the preset list.
+You should see a `# == dsh-yum-preset` layer. Then boot — **JEV Cross-Verification** appears in the preset list.
 
-Remove the same way: `dsh plugin --profile <your-profile> remove dsh-jev-preset`.
+Remove the same way: `dsh plugin --profile <your-profile> remove dsh-yum-preset`.
 
 > This bundle declares no `dependencies` / `peerDependencies` and hardcodes no DSH version.
 > The declaration row ships `inject = ["agentPresets"]`, so the loader activates it once the registry is ready,
@@ -53,7 +53,7 @@ The persona half is prompt-only. Its 3-way sampling and structured re-derivation
 "pick the thinking effort by task complexity" — too low an effort and a wrong assertion goes unnoticed.
 That logic used to live in a **separate npm package** (`dsh-auto-reasoning`), referenced by this bundle's
 second declaration row. Since 2026-10-13 the code is **in this package** (`lib/`), declared by a
-self-mounting row (`id: plugin-jev-runtime`, `name: 'dsh-jev-preset'`).
+self-mounting row (`id: plugin-yum-runtime`, `name: 'dsh-yum-preset'`).
 
 | | |
 |---|---|
@@ -99,7 +99,7 @@ session created with `agentPreset: jev` (including the registry default) fails w
 returns that error while the DSH process is healthy and listening. The symptom on the
 user's side is "DSH will not start after the update".
 
-Migration: a second declaration row `preset-jev-executor` (`config.id: jev-executor`)
+Migration: a second declaration row `preset-yum-executor` (`config.id: yum-executor`)
 carries the executor persona **and** the tool rows; the `tool-subagent` row now only
 declares `agentPreset: jev-executor`. An independently selected preset does **not**
 inherit the parent's composition (`dsh-subagent/README.md`: an explicit id mounts the
@@ -195,11 +195,11 @@ check is one of those 3 kinds.
 Call all 18 assertions from the CLI.
 
 ⚠ The path below is **relative to the plugin root** and only resolves when the
-current directory is `plugins/dsh-jev-preset/`. Copy-pasting it from the repository
+current directory is `plugins/dsh-yum-preset/`. Copy-pasting it from the repository
 root (the default session cwd) yields `[Errno 2]`. Locate first:
 
 ```powershell
-$JEV = @(Resolve-Path "$env:USERPROFILE\.dsh\profiles\*\node_modules\dsh-jev-preset\packages\assertions\python\jev_assertions\cli.py" -ErrorAction SilentlyContinue | Sort-Object Path)[0].Path
+$JEV = @(Resolve-Path "$env:USERPROFILE\.dsh\profiles\*\node_modules\dsh-yum-preset\packages\assertions\python\jev_assertions\cli.py" -ErrorAction SilentlyContinue | Sort-Object Path)[0].Path
 if (-not (Test-Path $JEV)) { $JEV = @(Get-ChildItem . -Recurse -Depth 5 -Directory -Filter jev_assertions)[0].FullName + '\cli.py' }
 if (-not (Test-Path $JEV)) { throw "assertion library not found ($JEV)" }
 ```

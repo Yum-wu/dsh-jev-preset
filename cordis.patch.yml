@@ -14,7 +14,7 @@
 # 抛错 `Preset services require isolate realms: ...`(见 dsh-agent-preset-registry)。
 # 语法为 `isolate: { <serviceName>: true }`,`true` = 本条目的私有 realm 实例。
 - insert:
-    - id: preset-yum
+    - id: preset-jev
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         # ⚠ `config.id` 是**会话持久化外键**,不是显示名:每条会话把自己的 preset 原样
@@ -280,7 +280,7 @@
           #
           # 手段一 `maxDepth: 1`:子代理(depth1)不可再派生(depth2 被拒)。
           #
-          # 手段二 `agentPreset: yum-executor`:子代理改挂**独立 preset**(下文第三条声明行),
+          # 手段二 `agentPreset: jev-executor`:子代理改挂**独立 preset**(下文第三条声明行),
           # 身份=纯执行者,且**结构上不带 delegation 组** ⇒ 既禁止它再裂变,
           # 也避免它输出父会话专属的 `[JEV: ...]` 裁决标识(实测已发生)。
           #
@@ -338,7 +338,7 @@
                   #   必须自带工具面;两份列表的漂移由 tests/test-subagent-preset-migration.mjs 守。
                   # ⚠ 这里的值必须与下方第三条声明行的 `config.id` **逐字相同** ——
                   #   它是会话持久化外键,不一致会让子代理 resume 报 Unknown agent preset。
-                  agentPreset: yum-executor
+                  agentPreset: jev-executor
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
@@ -386,7 +386,7 @@
             name: '@deepseek-ai/dsh-tool-present'
 
 # ── 第三条声明行(2026-10-17 加,2026-10-19 随父 preset 一起改标识):子代理(执行者)preset ──
-# 消费者:父 preset(`preset-yum` / config.id `jev`)的 `tool-subagent` 行 `agentPreset: yum-executor`。
+# 消费者:父 preset(`preset-yum` / config.id `jev`)的 `tool-subagent` 行 `agentPreset: jev-executor`。
 #
 # 与父 preset 的差异**只有两处**:
 #   ① persona 文本 = 执行者身份(原文的 tool-subagent.config.persona,逐字未改),
@@ -402,10 +402,10 @@
 # ⚠ `config.id` 是**会话持久化外键**(同父 preset,见上文注释),改名等于让存量
 #   子代理会话 resume 失败。2026-10-19 那次 jev-executor → yum-executor 前实测:
 #   仅 3 条会话存 `jev-executor`,全部是子代理行、且不被 schedule/workspace/dispatch 引用。
-    - id: preset-yum-executor
+    - id: preset-jev-executor
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: yum-executor
+        id: jev-executor
         name: JEV 三路执行者
         description: JEV 三路隔离采样的单路执行者身份(供 subagent 工具内部选用,不是给人选的会话预设)。无 delegation 工具面,不输出 [JEV] 裁决标识。
         order: 6
@@ -522,7 +522,7 @@
 #
 # ⚠ 连带取舍:卸载 jev preset = 一并失去档位换算,思考档位回落到**模型默认档**
 #   (不是回落到 high —— 哨兵没了就不会有人换算)。
-    - id: plugin-jev-runtime
+    - id: plugin-yum-runtime
       name: 'dsh-yum-preset'
       config:
         enabled: true
