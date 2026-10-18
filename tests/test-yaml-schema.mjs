@@ -28,7 +28,7 @@ test('YAML Schema 语法有效性与顶层结构', () => {
   assert.ok(patch[0].insert, '必须包含 insert 操作')
   
   // 按 config.id 定位(会话持久化外键),不按下标、也不按 Loader 行 id ——
-  //   行 id 是可改命名空间(2026-10-19: preset-jev → preset-yum),下标会随插行漂移。
+  //   行 id 是可改命名空间(2026-10-19 曾改成 preset-yum,同日回退),下标会随插行漂移。
   const decl = patch[0].insert.find((r) => r?.config?.id === 'jev')
   assert.ok(decl, '找不到 config.id=jev 的 preset 声明行 —— config.id 是会话外键,不可改名')
   assert.equal(decl.name, '@deepseek-ai/dsh-agent-preset')

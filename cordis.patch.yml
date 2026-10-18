@@ -332,9 +332,9 @@
                   modelSelectionSettings: true
                   backgroundMode: continuable
                   maxDepth: 1
-                  # 子代理的 persona 与工具面**全部**由 yum-executor 这个独立 preset 承担
+                  # 子代理的 persona 与工具面**全部**由 jev-executor 这个独立 preset 承担
                   # (旧写法 `persona: |-` 在本运行时直接抛错,见上文「为什么不能再用旧写法」)。
-                  # ⚠ 独立 preset 是自足的:上游没有「继承父 preset」机制,故 yum-executor
+                  # ⚠ 独立 preset 是自足的:上游没有「继承父 preset」机制,故 jev-executor
                   #   必须自带工具面;两份列表的漂移由 tests/test-subagent-preset-migration.mjs 守。
                   # ⚠ 这里的值必须与下方第三条声明行的 `config.id` **逐字相同** ——
                   #   它是会话持久化外键,不一致会让子代理 resume 报 Unknown agent preset。
@@ -385,8 +385,9 @@
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
 
-# ── 第三条声明行(2026-10-17 加,2026-10-19 随父 preset 一起改标识):子代理(执行者)preset ──
-# 消费者:父 preset(`preset-yum` / config.id `jev`)的 `tool-subagent` 行 `agentPreset: jev-executor`。
+# ── 第三条声明行(2026-10-17 加):子代理(执行者)preset ──
+# 2026-10-19 一度随父 preset 一起改标识,又回退 —— config.id 是会话外键,见下方注释。
+# 消费者:父 preset(`preset-jev` / config.id `jev`)的 `tool-subagent` 行 `agentPreset: jev-executor`。
 #
 # 与父 preset 的差异**只有两处**:
 #   ① persona 文本 = 执行者身份(原文的 tool-subagent.config.persona,逐字未改),
@@ -400,8 +401,12 @@
 #   漂移守卫:`tests/test-subagent-preset-migration.mjs`(逐行 deepEqual + 差集断言)。
 #
 # ⚠ `config.id` 是**会话持久化外键**(同父 preset,见上文注释),改名等于让存量
-#   子代理会话 resume 失败。2026-10-19 那次 jev-executor → yum-executor 前实测:
-#   仅 3 条会话存 `jev-executor`,全部是子代理行、且不被 schedule/workspace/dispatch 引用。
+#   子代理会话 resume 失败。2026-10-19 实测:仅 3 条会话存 `jev-executor`
+#   (`a967ba5d` / `a1c958b6` / `e963e191`),三者在
+#   `~/.dsh/storages/{schedule,workspace,dispatch}.json` 里 **0 引用** —— 这是"可承受"的
+#   **唯一**依据。⚠ 不要用"带 `subagent` 行"当判据:1868 份投影里 646 份都带 `identity.mode`
+#   (continuable 578 / one-shot 68),**父会话也带**,推不出"这是子代理子会话"。
+#   这 3 条实测 `identity.mode` **全是 continuable**(不是 one-shot),那次改名后来已整体回退。
     - id: preset-jev-executor
       name: '@deepseek-ai/dsh-agent-preset'
       config:
@@ -411,7 +416,7 @@
         order: 6
         plugins:
           # ── Persona:执行者身份(原文见 git 历史里 tool-subagent 的 persona 键)──
-          # ⚠ 同 preset-yum:不得引用未注册变量(0.2.1 起 `{{cwd}}` 是硬错,会让子代理轮次抛错)。
+          # ⚠ 同 preset-jev:不得引用未注册变量(0.2.1 起 `{{cwd}}` 是硬错,会让子代理轮次抛错)。
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
@@ -429,7 +434,7 @@
                 - 若任务要求执行代码,在**本路专属临时目录**内执行,不要写公共路径。
                 - 若无法完成,明确说明卡在哪一步、缺什么,不要编造结果。
 
-          # ── 工具面:与 preset-yum 逐行一致(除 delegation 组)───────────────
+          # ── 工具面:与 preset-jev 逐行一致(除 delegation 组)───────────────
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -488,7 +493,7 @@
             name: '@deepseek-ai/dsh-tool-present'
 
 # ── 第四条声明行:JEV 运行时半区(自动思考程度 + 发射台账)2026-10-13 合体 ──
-# JEV 的提示词半区(上面的 preset-yum)是**纯提示词**;它的三路隔离采样与结构化重算
+# JEV 的提示词半区(上面的 preset-jev)是**纯提示词**;它的三路隔离采样与结构化重算
 # 都以「按任务复杂度选思考档位」为前提 —— 档位太低,断言算错没人发现。
 # 该逻辑过去在**另一个 npm 包** `dsh-auto-reasoning` 里,由本 bundle 的这行「引用」进来。
 # 2026-10-13 合体:代码搬进本包 `lib/`,改为**自挂一行**(与 dsh-plugin-codemode、

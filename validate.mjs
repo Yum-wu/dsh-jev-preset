@@ -4,12 +4,15 @@
 // 3) 子插件名对照 shipped preset 已成功挂载的名字集合(同层解析环境)
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 
 import { runtimeNodeModules } from './runtime-path.mjs'
 
 const RUNTIME = runtimeNodeModules()
-const BUNDLE = 'C:/Users/Yum/Desktop/DeepSeekHarness/plugins/dsh-yum-preset'
+// 本包根目录 = 本模块所在目录,**不写死绝对路径**。
+// 写死会让 clone / 移动后的副本继续校验原树 ⇒ 守卫对着旧树打绿(同 runtime-path.mjs
+// 里「指针留在旧目录、静默测错对象」一类病),也让判别性测试无法在临时目录跑。
+const BUNDLE = fileURLToPath(new URL('.', import.meta.url)).replace(/\\/g, '/').replace(/\/$/, '')
 
 const req = createRequire(pathToFileURL(`${RUNTIME}/@deepseek-ai/cordis-plugin-include/lib/index.js`))
 const yaml = req('js-yaml')
@@ -53,7 +56,9 @@ const rows = inserts.flatMap((p) => p.insert)
 // ⚠ 2026-10-13 合体：运行时半区由 `plugin-auto-reasoning`（引用外部包
 //   `dsh-auto-reasoning`）改为 `plugin-yum-runtime`（自挂本包，代码在 lib/）。
 // ⚠ 2026-10-17（运行时 0.2.1-rc.2）：子代理身份迁移为**独立 preset**
-//   `preset-yum-executor`（`dsh-tool-subagent` 不再接受 `persona` / `toolFilter` 键）。
+//   `preset-jev-executor` / config.id `jev-executor`（`dsh-tool-subagent` 不再接受
+//   `persona` / `toolFilter` 键）。⚠ config.id 这里**必须**留 `jev-executor`：它是
+//   会话外键（见 PERSISTED_PRESET_IDS 一节），2026-10-19 一度改成 yum-executor 又撕回。
 // 因此**按 id / name 定位**而不是假设 rows[0] —— 顺序一变就静默校验错对象。
 if (rows.length < 1) fail('insert 组里没有任何声明行')
 else ok(`insert 组内 ${rows.length} 条声明行: ${rows.map((r) => r?.id).join(', ')}`)
@@ -113,12 +118,20 @@ for (const p of presetRows) {
 const presetIds = presetRows.map((p) => p?.config?.id)
 // ⚠ 这两个 config.id 是**会话持久化外键**,不是显示名:改了就是让存量会话 resume 报错
 //   (`Unknown agent preset: <id>`)。本包必须同时暴露这两个,一个都不能少。
-//   要改名的正确顺序:先数存量(实测 2026-10-19:jev=738 / jev-executor=3,后者全是
-//   不被 schedule/workspace/dispatch 引用的子代理行 ⇒ 可承受,已在 cordis.patch.yml 记录),
-//   再**同一批**改掉声明行的 config.id 与父 preset 里的 `agentPreset:` 指认 —— 两者不一致
-//   会让子代理起不来。只改一边 = 静默断链。
+//   实测存量(2026-10-19,~/.dsh/storages/session_projcache/sessions/,1868 份投影):
+//     agentPreset 有值 1802 = jev 738 + standard 988 + ptc 48 + cordis 21 + liangshen 4
+//                         + jev-executor 3;另有 66 份根本不带 agentPreset 键(合计 1868)。
+//     **yum / yum-executor 命中 0** —— 一次改名都没留下任何存量,改名纯属自找。
+//   「这 3 条 jev-executor 是不是可丢弃的子代理子会话」——不能按"带 subagent 行"判:
+//     该键在 1868 份里 646 份都有 mode(continuable 578 / one-shot 68),父会话照样带,
+//     **是个恒真判据**(2026-10-19 我在这上面错判过一次,已撕回)。
+//   可用的实判据 = `record.rows.subagent.val.identity.mode`:这 3 条**全是 continuable**
+//     (不是 one-shot 一次性子会话),所以"可承受"的依据不是"它们是子会话",而是
+//     实测在 ~/.dsh/storages/{schedule,workspace,dispatch}.json 里**零引用**。
+//   要改名的正确顺序:先按上面两条取证,再**同一批**改掉声明行的 config.id 与父 preset
+//   里的 `agentPreset:` 指认 —— 两者不一致会让子代理静默起不来。只改一边 = 静默断链。
 //   旧写法 `if (decl && ...) fail() else ok()` 在 decl 为 undefined 时会打 OK —— 恒绿判据,已废。
-const PERSISTED_PRESET_IDS = ['jev', 'yum-executor']
+const PERSISTED_PRESET_IDS = ['jev', 'jev-executor']
 for (const pid of PERSISTED_PRESET_IDS) {
   const n = presetIds.filter((x) => x === pid).length
   if (n === 1) ok(`持久化 preset 外键 ${pid} 恰好注册 1 次`)

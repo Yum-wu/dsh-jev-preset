@@ -99,9 +99,14 @@ session created with `agentPreset: jev` (including the registry default) fails w
 returns that error while the DSH process is healthy and listening. The symptom on the
 user's side is "DSH will not start after the update".
 
-Migration: a second declaration row `preset-yum-executor` (`config.id: yum-executor`)
+Migration: a second declaration row `preset-jev-executor` (`config.id: jev-executor`)
 carries the executor persona **and** the tool rows; the `tool-subagent` row now only
-declares `agentPreset: jev-executor`. An independently selected preset does **not**
+declares `agentPreset: jev-executor`. ⚠ Both sides are `jev-executor` **on purpose** —
+`config.id` is a session-persisted foreign key (3 stored sessions), so it is not
+renamable; only the Loader row id and the display `name` are. The judgement and the
+measured session distribution live in `validate.mjs` (`PERSISTED_PRESET_IDS` block)
+and in the `config.id` comment of `cordis.patch.yml`.
+An independently selected preset does **not**
 inherit the parent's composition (`dsh-subagent/README.md`: an explicit id mounts the
 current available revision), so the two plugin lists must agree row by row. The only
 permitted difference is the `delegation` group, absent from the executor preset —

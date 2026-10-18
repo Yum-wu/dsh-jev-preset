@@ -21,9 +21,11 @@ const START_PS1 = path.join(homedir(), '.dsh', 'start-dsh.ps1')
 /**
  * BOM 感知读取。
  *
- * ⚠ `~/.dsh/start-dsh.ps1` 实测是 **UTF-16LE(`FF FE` BOM)**。按 utf8 读会得到满屏
- *   U+FFFD,下面的正则一条都匹配不上,本模块直接抛 `cannot parse $dshEntry` ——
- *   而这条报错看起来像「脚本格式变了」,实际是读法错了,排障方向被带偏。
+ * ⚠ `~/.dsh/start-dsh.ps1` 的**编码不是常量**,别按"它现在是 X"写死判据:
+ *   2026-10-14 实测 UTF-16LE(`FF FE`),2026-10-19 复测 UTF-8 BOM(`EF BB BF`)。
+ *   按 utf8 硬读 UTF-16LE 会得到满屏 U+FFFD,下面的正则一条都匹配不上,本模块直接抛
+ *   `cannot parse $dshEntry` —— 而这条报错看起来像「脚本格式变了」,实际是读法错了,
+ *   排障方向被带偏。
  *
  *   同一个坑在本仓/本机已踩三次:codemode 的 bundle-declaration 测试、
  *   prompt-editor 的 schemastery junction 守卫、以及这里。

@@ -59,7 +59,7 @@ JEV 的提示词半区是**纯提示词**；它的三路隔离采样与结构化
 | | |
 |---|---|
 | 代码位置 | 本包 `lib/`（`index.js` 运行时插件、`auto-reasoning.js` 计分、`jev-client.js` SystemOne 通道、`client.js` 胶囊） |
-| 声明位置 | 与 `preset-yum` **同一个 insert 组**里的第三条声明行（`id: plugin-yum-runtime`，自挂本包） |
+| 声明位置 | 与 `preset-jev` **同一个 insert 组**里的第三条声明行（`id: plugin-yum-runtime`，自挂本包） |
 | 做什么 | ① 把模型配置里的 `reasoningEffort: auto` 哨兵换算成该模型自己的合法档位；② 数「本轮实际发射了几路」（发射台账） |
 | 历史 | 2026-10-05 → 2026-10-13 期间它在**另一个 npm 包** [`dsh-auto-reasoning`](https://github.com/Yum-wu/dsh-auto-reasoning) 里，由本 bundle 的这行**引用**进来 |
 
@@ -113,8 +113,11 @@ in an Agent Preset and select it with agentPreset (spawn only)
 `POST /api/session/create` 可复现该错，同时 DSH 进程健康、端口在听。
 用户侧看到的现象就是「DSH 更新后起不来了」。
 
-迁移：多一条声明行 `preset-yum-executor`（`config.id: yum-executor`），它自带执行者 persona
+迁移：多一条声明行 `preset-jev-executor`（`config.id: jev-executor`），它自带执行者 persona
 **和**整套工具行；`tool-subagent` 行只剩 `agentPreset: jev-executor`。
+⚠ 两侧都**必须**留 `jev-executor`：`config.id` 是会话持久化外键（实测 3 条存量投影），
+不可改名；能改的只有 Loader 行 id 与显示 `name`。判据与实测数写在
+`validate.mjs` 的 `PERSISTED_PRESET_IDS` 注释块与 `cordis.patch.yml` 的 `config.id` 注释里。
 ⚠ 独立选中的 preset **不继承**父 preset 的组合（`dsh-subagent/README.md`：显式 id 挂载的是
 当前可用修订，不是父组合），所以两份 plugins 列表必须逐行一致；唯一允许的差异是
 `delegation` 组 —— 执行者预设里**没有**它，递归阻断由此从「提示词自律」变成「结构上无工具可调」。

@@ -3,13 +3,15 @@
 //   applyEntryPatches   — 与 cordis-plugin-include 合成 entry 树完全同一条代码路径
 // 目的:证明这个 bundle 被 Loader 接受后,能正确地把 preset 行合入 entry 树。
 import { createRequire } from 'node:module'
-import { pathToFileURL } from 'node:url'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import { readFileSync } from 'node:fs'
 
 import { runtimeNodeModules } from './runtime-path.mjs'
 
 const RUNTIME = runtimeNodeModules()
-const BUNDLE = 'C:/Users/Yum/Desktop/DeepSeekHarness/plugins/dsh-yum-preset'
+// 本包根目录 = 本模块所在目录(不写死绝对路径,理由同 validate.mjs:写死会让副本
+// 继续校验原树,守卫对旧树打绿)。
+const BUNDLE = fileURLToPath(new URL('.', import.meta.url)).replace(/\\/g, '/').replace(/\/$/, '')
 
 const appBoot = await import(pathToFileURL(`${RUNTIME}/@deepseek-ai/dsh-app-boot/lib/index.js`).href)
 const include = await import(pathToFileURL(`${RUNTIME}/@deepseek-ai/cordis-plugin-include/lib/index.js`).href)

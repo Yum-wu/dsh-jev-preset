@@ -10,8 +10,10 @@
 //     → {code:"agent-preset/invalid", message:"...persona is no longer supported..."}
 // 用户侧看到的是「DSH 更新后起不来了」,而 DSH 进程其实活着(3080 有响应)。
 //
-// 修法:子代理身份迁到**独立 preset** `preset-yum-executor`,`tool-subagent` 只留
-// `agentPreset: yum-executor`。⚠ 上游对独立子 preset **没有**「继承父 preset」机制
+// 修法:子代理身份迁到**独立 preset** `preset-jev-executor`,`tool-subagent` 只留
+// `agentPreset: jev-executor`。⚠ 两侧必须**逐字相同**:Loader 行 id 可改,但 `agentPreset`
+// 指认的是 `config.id` —— 后者是**会话持久化外键,不可改名**。2026-10-19 曾整体改成
+// `*-yum-executor`,同日回退。⚠ 上游对独立子 preset **没有**「继承父 preset」机制
 // (`dsh-subagent/README.md`:An explicit id mounts the current available revision),
 // 所以子 preset 的工具行必须自足 —— 漏一行 = 子代理静默少一件工具。
 // 本文件就是那个不变量:两份 plugins 列表逐行一致,差集只允许 delegation 组。
@@ -42,7 +44,7 @@ function loadPatch() {
   const patch = yaml.load(readFileSync(PATCH_FILE, 'utf8'), { schema: yaml.JSON_SCHEMA.extend(JsExpr) })
   const rows = patch[0].insert
   // 按 **config.id(会话持久化外键)** 定位,不按 Loader 行 id ——
-  //   行 id 是可改的命名空间(2026-10-19 由 preset-jev 改成 preset-yum),
+  //   行 id 是可改的命名空间(2026-10-19 曾改成 preset-yum,同日回退成 preset-jev),
   //   写死行 id 会让改名把整组测试弄红,而真正的不变量在 config.id 上。
   const parent = rows.find((r) => r.config?.id === 'jev')
   assert.ok(parent, '找不到 config.id=jev 的 preset 声明行(会话外键,不可改名)')
