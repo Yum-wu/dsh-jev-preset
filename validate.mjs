@@ -9,7 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { runtimeNodeModules } from './runtime-path.mjs'
 
 const RUNTIME = runtimeNodeModules()
-const BUNDLE = 'C:/Users/Yum/Desktop/DeepSeekHarness/plugins/dsh-jev-preset'
+const BUNDLE = 'C:/Users/Yum/Desktop/DeepSeekHarness/plugins/dsh-yum-preset'
 
 const req = createRequire(pathToFileURL(`${RUNTIME}/@deepseek-ai/cordis-plugin-include/lib/index.js`))
 const yaml = req('js-yaml')
@@ -53,7 +53,7 @@ const rows = inserts.flatMap((p) => p.insert)
 // ⚠ 2026-10-13 合体：运行时半区由 `plugin-auto-reasoning`（引用外部包
 //   `dsh-auto-reasoning`）改为 `plugin-jev-runtime`（自挂本包，代码在 lib/）。
 // ⚠ 2026-10-17（运行时 0.2.1-rc.2）：子代理身份迁移为**独立 preset**
-//   `preset-jev-executor`（`dsh-tool-subagent` 不再接受 `persona` / `toolFilter` 键）。
+//   `preset-yum-executor`（`dsh-tool-subagent` 不再接受 `persona` / `toolFilter` 键）。
 // 因此**按 id / name 定位**而不是假设 rows[0] —— 顺序一变就静默校验错对象。
 if (rows.length < 1) fail('insert 组里没有任何声明行')
 else ok(`insert 组内 ${rows.length} 条声明行: ${rows.map((r) => r?.id).join(', ')}`)
@@ -64,13 +64,15 @@ if (presetRows.length < 1) fail(`insert 组里没有 ${PRESET_PKG} 声明行`)
 for (const r of presetRows) {
   if (!/^preset-[a-z0-9-]+$/.test(String(r?.id))) fail(`preset 声明行的 Loader 行 id 应为 preset-*,实际 ${r?.id}`)
 }
-const decl = rows.find((r) => r?.id === 'preset-jev')
-if (!decl) fail('insert 组里找不到 id=preset-jev 的声明行')
-else ok('preset 声明行按 id 定位成功(id=preset-jev)')
-if (decl?.name !== PRESET_PKG) fail(`声明行 name 应为 ${PRESET_PKG},实际 ${decl?.name}`)
-else ok(`声明行 name = ${decl.name}`)
-if (decl?.id !== 'preset-jev') fail(`Loader 行 id 应为 preset-jev,实际 ${decl?.id}`)
-else ok(`Loader 行 id = ${decl.id}`)
+// 按**持久化身份**定位:`config.id` 是会话存进日志的外键(agentPreset.val),
+// Loader 行 `id:` 只是可改的命名空间。写死行 id 会让「改显示名/行 id」把校验器
+// 一起弄红 —— 2026-10-19 那次 jev→yum 改名正是这样:校验器红 3 项没人跑,
+// 而真正的代价是 738 条会话 resume 失败。
+const decl = rows.find((r) => r?.name === PRESET_PKG && r?.config?.id === 'jev')
+if (!decl) fail('insert 组里找不到 config.id=jev 的 preset 声明行 —— config.id 是会话外键,不可改名')
+else ok(`preset 声明行按 config.id 定位成功(Loader 行 id=${decl.id})`)
+if (decl && !/^preset-[a-z0-9-]+$/.test(String(decl.id))) fail(`Loader 行 id 应为 preset-*,实际 ${decl.id}`)
+else if (decl) ok(`Loader 行 id = ${decl.id}(命名空间,可随包名改)`)
 
 // 同组的非 preset 声明行：只允许已知的插件 id，且名字必须能被 Loader 解析
 const extraRows = rows.filter((r) => r?.name !== PRESET_PKG)
@@ -82,8 +84,8 @@ for (const r of extraRows) {
 const runtimeRow = extraRows.find((r) => r?.id === 'plugin-jev-runtime')
 if (runtimeRow !== undefined && decl) {
   // 自挂：name 必须是本包名，否则 Loader 解析到别的包（或解析不到）→ 整条不激活。
-  if (runtimeRow.name !== 'dsh-jev-preset') fail(`运行时半区应自挂本包，name 实际 ${runtimeRow.name}`)
-  else ok('plugin-jev-runtime 自挂本包（name=dsh-jev-preset）')
+  if (runtimeRow.name !== 'dsh-yum-preset') fail(`运行时半区应自挂本包，name 实际 ${runtimeRow.name}`)
+  else ok('plugin-jev-runtime 自挂本包（name=dsh-yum-preset）')
   // ⚠ 旧形态必须绝迹：`plugin-auto-reasoning` 指向外部包 `dsh-auto-reasoning`，
   //   它与对方自己的 bundle 层同 id ⇒ 合成层重复、后者胜 ⇒ 本包 config 静默失效。
   if (extraRows.some((r) => r?.id === 'plugin-auto-reasoning')) {
@@ -108,11 +110,21 @@ for (const p of presetRows) {
   if (!Array.isArray(cfg.plugins)) { fail(`${at} plugins 必须是数组`); continue }
   ok(`${at} config 键合法 id=${cfg.id} order=${cfg.order} plugins=${cfg.plugins.length} 行`)
 }
-// config.id 是会话保存的 preset 身份,必须与 Loader 行 id 区分(历史约定 preset-jev ↔ jev)
-if (decl && decl.config?.id !== 'jev') fail(`preset-jev 的 config.id 应为 jev,实际 ${decl.config?.id}`)
-else ok('preset-jev 的 config.id = jev')
-// registry:`Duplicate agent preset: <id>` 会让声明加载失败
 const presetIds = presetRows.map((p) => p?.config?.id)
+// ⚠ 这两个 config.id 是**会话持久化外键**,不是显示名:改了就是让存量会话 resume 报错
+//   (`Unknown agent preset: <id>`)。本包必须同时暴露这两个,一个都不能少。
+//   要改名的正确顺序:先数存量(实测 2026-10-19:jev=738 / jev-executor=3,后者全是
+//   不被 schedule/workspace/dispatch 引用的子代理行 ⇒ 可承受,已在 cordis.patch.yml 记录),
+//   再**同一批**改掉声明行的 config.id 与父 preset 里的 `agentPreset:` 指认 —— 两者不一致
+//   会让子代理起不来。只改一边 = 静默断链。
+//   旧写法 `if (decl && ...) fail() else ok()` 在 decl 为 undefined 时会打 OK —— 恒绿判据,已废。
+const PERSISTED_PRESET_IDS = ['jev', 'yum-executor']
+for (const pid of PERSISTED_PRESET_IDS) {
+  const n = presetIds.filter((x) => x === pid).length
+  if (n === 1) ok(`持久化 preset 外键 ${pid} 恰好注册 1 次`)
+  else fail(`持久化 preset 外键 ${pid} 注册了 ${n} 次(应为 1 次;0 次=被改名或删除,存量会话会 resume 失败)`)
+}
+// registry:`Duplicate agent preset: <id>` 会让声明加载失败
 const dupPresetIds = presetIds.filter((v, i) => presetIds.indexOf(v) !== i)
 if (dupPresetIds.length) fail(`preset id 重复: ${[...new Set(dupPresetIds)].join(', ')}`)
 else ok(`preset id 唯一(${presetIds.join(', ')})`)

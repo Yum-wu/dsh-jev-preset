@@ -1,4 +1,4 @@
-# dsh-jev-preset — JEV 自适应交叉验证模式 agent preset
+# dsh-yum-preset — JEV 自适应交叉验证模式 agent preset
 #
 # 官方 0.1.7 规范:预设 = 一条 `@deepseek-ai/dsh-agent-preset` 声明行。
 # 本 bundle 只做一件事:向 profile 的 Loader 树 insert 这一行。
@@ -14,11 +14,17 @@
 # 抛错 `Preset services require isolate realms: ...`(见 dsh-agent-preset-registry)。
 # 语法为 `isolate: { <serviceName>: true }`,`true` = 本条目的私有 realm 实例。
 - insert:
-    - id: preset-jev
+    - id: preset-yum
       name: '@deepseek-ai/dsh-agent-preset'
       config:
+        # ⚠ `config.id` 是**会话持久化外键**,不是显示名:每条会话把自己的 preset 原样
+        #   存进 session 日志(`agentPreset.val`),registry 解析时 `definitions.get(id)`
+        #   查不到就抛 `Unknown agent preset: <id>` → 整条会话无法 resume。
+        #   2026-10-19 实测:改名 `jev`→`yum` 后 738 条会话(含 46 条 DS Bot 派发会话)
+        #   全部停摆,而**没有一条**会话存的是 `yum` —— 改名零收益、全额成本。
+        #   要改标识请只改上面声明行 `id:`(loader 命名空间)与 `name:`(显示名)。
         id: jev
-        name: JEV 自适应交叉验证
+        name: Yum 自适应交叉验证
         description: 客观门控路由 + 三路上下文隔离采样 + 执行优先裁决。高危任务(量化推导/资金风控/交易信号/安全/重构)强制 3 路独立验证,日常任务单次直出。
         order: 5
         plugins:
@@ -173,7 +179,7 @@
                   裸相对路径 `packages/assertions/...` 只在插件目录内成立,默认会话 cwd 是仓库根,直接跑必 `[Errno 2]`。
                   定位(主路径走 glob 字符串解析 —— `Get-ChildItem -Recurse` **不跟随 junction**,
                   遍历 profiles 只会返回 0 条,别在那上面浪费时间;`Sort-Object` 保证多 profile 时选取确定):
-                  `$JEV = @(Resolve-Path "$env:USERPROFILE\.dsh\profiles\*\node_modules\dsh-jev-preset\packages\assertions\python\jev_assertions\cli.py" -EA SilentlyContinue | Sort-Object Path)[0].Path; if (-not $JEV) { $JEV = @(Get-ChildItem . -Recurse -Depth 5 -Directory -Filter jev_assertions -EA SilentlyContinue | Select-Object -First 1)[0].FullName + '\cli.py' }`
+                  `$JEV = @(Resolve-Path "$env:USERPROFILE\.dsh\profiles\*\node_modules\dsh-yum-preset\packages\assertions\python\jev_assertions\cli.py" -EA SilentlyContinue | Sort-Object Path)[0].Path; if (-not $JEV) { $JEV = @(Get-ChildItem . -Recurse -Depth 5 -Directory -Filter jev_assertions -EA SilentlyContinue | Select-Object -First 1)[0].FullName + '\cli.py' }`
                   执行:`if (-not (Test-Path $JEV)) { throw "断言库未找到($JEV)" } ; python $JEV --func <断言名> --args "<json参数>"`
                   ⚠ `$JEV` 为空时**禁止**继续执行 —— `python $JEV` 会退化成 `python --func ...`,
                   报 `unknown option --func`(误导性极强的假信号),必须先 throw。
@@ -274,7 +280,7 @@
           #
           # 手段一 `maxDepth: 1`:子代理(depth1)不可再派生(depth2 被拒)。
           #
-          # 手段二 `agentPreset: jev-executor`:子代理改挂**独立 preset**(下文第三条声明行),
+          # 手段二 `agentPreset: yum-executor`:子代理改挂**独立 preset**(下文第三条声明行),
           # 身份=纯执行者,且**结构上不带 delegation 组** ⇒ 既禁止它再裂变,
           # 也避免它输出父会话专属的 `[JEV: ...]` 裁决标识(实测已发生)。
           #
@@ -326,11 +332,13 @@
                   modelSelectionSettings: true
                   backgroundMode: continuable
                   maxDepth: 1
-                  # 子代理的 persona 与工具面**全部**由 jev-executor 这个独立 preset 承担
+                  # 子代理的 persona 与工具面**全部**由 yum-executor 这个独立 preset 承担
                   # (旧写法 `persona: |-` 在本运行时直接抛错,见上文「为什么不能再用旧写法」)。
-                  # ⚠ 独立 preset 是自足的:上游没有「继承父 preset」机制,故 jev-executor
+                  # ⚠ 独立 preset 是自足的:上游没有「继承父 preset」机制,故 yum-executor
                   #   必须自带工具面;两份列表的漂移由 tests/test-subagent-preset-migration.mjs 守。
-                  agentPreset: jev-executor
+                  # ⚠ 这里的值必须与下方第三条声明行的 `config.id` **逐字相同** ——
+                  #   它是会话持久化外键,不一致会让子代理 resume 报 Unknown agent preset。
+                  agentPreset: yum-executor
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
@@ -377,29 +385,33 @@
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
 
-# ── 第三条声明行(2026-10-17 加):JEV 子代理(执行者)preset ───────────────────
-# 消费者:`preset-jev` 的 `tool-subagent` 行 `agentPreset: jev-executor`。
+# ── 第三条声明行(2026-10-17 加,2026-10-19 随父 preset 一起改标识):子代理(执行者)preset ──
+# 消费者:父 preset(`preset-yum` / config.id `jev`)的 `tool-subagent` 行 `agentPreset: yum-executor`。
 #
-# 与 preset-jev 的差异**只有两处**:
+# 与父 preset 的差异**只有两处**:
 #   ① persona 文本 = 执行者身份(原文的 tool-subagent.config.persona,逐字未改),
 #      不含裁决标识表 ⇒ 子代理不会输出父会话专属的 `[JEV: ...]`(实测发生过)。
 #   ② **不含 delegation 组** ⇒ 子代理结构上就没有 subagent/workflow 工具,
 #      递归阻断不再依赖「prompt 自律 + maxDepth 拒绝」。
 #
-# ⚠ 其余工具行必须与 preset-jev **逐行一致**:上游对独立子 preset 没有「继承父 preset」
+# ⚠ 其余工具行必须与父 preset **逐行一致**:上游对独立子 preset 没有「继承父 preset」
 #   机制(`dsh-subagent/README.md`:An explicit id mounts the current available revision),
 #   所以这里漏一行 = 子代理静默少一件工具,且配置校验查不出来。
 #   漂移守卫:`tests/test-subagent-preset-migration.mjs`(逐行 deepEqual + 差集断言)。
-    - id: preset-jev-executor
+#
+# ⚠ `config.id` 是**会话持久化外键**(同父 preset,见上文注释),改名等于让存量
+#   子代理会话 resume 失败。2026-10-19 那次 jev-executor → yum-executor 前实测:
+#   仅 3 条会话存 `jev-executor`,全部是子代理行、且不被 schedule/workspace/dispatch 引用。
+    - id: preset-yum-executor
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: jev-executor
+        id: yum-executor
         name: JEV 三路执行者
         description: JEV 三路隔离采样的单路执行者身份(供 subagent 工具内部选用,不是给人选的会话预设)。无 delegation 工具面,不输出 [JEV] 裁决标识。
         order: 6
         plugins:
           # ── Persona:执行者身份(原文见 git 历史里 tool-subagent 的 persona 键)──
-          # ⚠ 同 preset-jev:不得引用未注册变量(0.2.1 起 `{{cwd}}` 是硬错,会让子代理轮次抛错)。
+          # ⚠ 同 preset-yum:不得引用未注册变量(0.2.1 起 `{{cwd}}` 是硬错,会让子代理轮次抛错)。
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
@@ -417,7 +429,7 @@
                 - 若任务要求执行代码,在**本路专属临时目录**内执行,不要写公共路径。
                 - 若无法完成,明确说明卡在哪一步、缺什么,不要编造结果。
 
-          # ── 工具面:与 preset-jev 逐行一致(除 delegation 组)───────────────
+          # ── 工具面:与 preset-yum 逐行一致(除 delegation 组)───────────────
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -476,7 +488,7 @@
             name: '@deepseek-ai/dsh-tool-present'
 
 # ── 第四条声明行:JEV 运行时半区(自动思考程度 + 发射台账)2026-10-13 合体 ──
-# JEV 的提示词半区(上面的 preset-jev)是**纯提示词**;它的三路隔离采样与结构化重算
+# JEV 的提示词半区(上面的 preset-yum)是**纯提示词**;它的三路隔离采样与结构化重算
 # 都以「按任务复杂度选思考档位」为前提 —— 档位太低,断言算错没人发现。
 # 该逻辑过去在**另一个 npm 包** `dsh-auto-reasoning` 里,由本 bundle 的这行「引用」进来。
 # 2026-10-13 合体:代码搬进本包 `lib/`,改为**自挂一行**(与 dsh-plugin-codemode、
@@ -511,7 +523,7 @@
 # ⚠ 连带取舍:卸载 jev preset = 一并失去档位换算,思考档位回落到**模型默认档**
 #   (不是回落到 high —— 哨兵没了就不会有人换算)。
     - id: plugin-jev-runtime
-      name: 'dsh-jev-preset'
+      name: 'dsh-yum-preset'
       config:
         enabled: true
         # 决策缓存条数上限(按会话 id,超出淘汰最旧)
